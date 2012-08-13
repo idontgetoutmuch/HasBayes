@@ -2,6 +2,8 @@ trajLength = 11112
 
 myData = c( 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0 )
 
+set.seed(47405)
+
 normals = rep (0, trajLength)
 for (j in 1:trajLength) { normals[j] = rnorm(1, mean = 0, sd = 0.1) }
 
@@ -17,18 +19,18 @@ likelihood = function( z, n, theta ) {
   return ( x )
 }
 
-q = function( position, xs ) {
+prior = function( position, xs ) {
   n = length( xs )
   z = sum ( xs == 1)
   return ( likelihood ( z, n, position ) )
 }
 
-g = function ( currentPosition, proposedJumpAcceptOrReject ) {
+oneStep = function ( currentPosition, proposedJumpAcceptOrReject ) {
   proposedJump   = proposedJumpAcceptOrReject [1]
   acceptOrReject = proposedJumpAcceptOrReject [2]
   probAccept = min( 1,
-    q( currentPosition + proposedJump , myData )
-    / q( currentPosition , myData ) )
+    prior( currentPosition + proposedJump , myData )
+    / prior( currentPosition , myData ) )
   if ( acceptOrReject < probAccept ) {
     trajectory = currentPosition + proposedJump
   } else {
@@ -40,10 +42,10 @@ g = function ( currentPosition, proposedJumpAcceptOrReject ) {
 nsAorBs <- list ()
 for (i in 1:trajLength) nsAorBs[[i]] <- c(normals[i], acceptOrRejects[i])
 
-x2 = Reduce(function(a,b) g (a, b), nsAorBs, accumulate=T,init= 0.5 )
+trajectory = Reduce(function(a,b) oneStep (a, b), nsAorBs, accumulate=T,init= 0.5 )
 
 burnIn = ceiling( .1 * trajLength )
 
-x3 = x2[burnIn:trajLength]
+acceptedTraj = trajectory[burnIn:trajLength]
 
-result = sum ( normals ) / trajLength
+result = mean ( acceptedTraj )
