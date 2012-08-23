@@ -1,0 +1,19 @@
+model in "line.jag"
+data in "line-jdt.R"
+compile, nchains(2)
+parameters in "line-in1.R"
+initialize
+update 1000
+monitor alpha
+monitor beta
+monitor sigma
+update 10000
+coda *
+
+
+
+
+
+
+
+

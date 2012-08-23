@@ -1,0 +1,17 @@
+model in "bern.jag"
+data in "bern-jdt.R"
+compile, nchains(2)
+parameters in "bern-in1.R"
+initialize
+update 1000
+monitor theta
+update 10000
+coda *
+
+
+
+
+
+
+
+
