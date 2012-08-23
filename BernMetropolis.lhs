@@ -18,7 +18,7 @@
 
 \begin{document}
 
-\section{A Simple Example}
+\subsection{A Simple Example}
 In Section 7.1 of \href{http://www.indiana.edu/~kruschke/DoingBayesianDataAnalysis/}{\lq\lq Doing Bayesian Data Analysis\rq\rq}, John Kruschke gives a simple example of the Metropolis algorithm, in which we generate samples from a distribution without knowing the distribution itself. Of course the example is contrived as we really do know the distribtion. In the particular example, ${\cal P}(X = i) = i/k$ for $i = 1 \ldots n$ where $n$ is some fixed natural number and $k$ is a normalising constant.
 
 Here's the algorithm in Haskell. We use the \href{http://hackage.haskell.org/package/random-fu-0.2.3.0}{random-fu} package and the \href{http://hackage.haskell.org/package/rvar-0.2.0.1}{rvar} package for random variables and the \href{http://hackage.haskell.org/package/random-1.0.1.1}{random} package to supply random numbers.
@@ -42,7 +42,7 @@ numIslands :: Int
 numIslands = 7
 \end{code}
 
-And we pick an arbitrary sample size.
+And we pick an arbitrary number of jumps to try in the Metropolis algorithm.
 
 \begin{code}
 n = 11112
@@ -95,8 +95,10 @@ Let's try this out with a somewhat arbitrary burn in period starting at position
 runMC seed = map (/ total) numVisits
   where
     total     = sum numVisits
-    numVisits = map (\j -> fromIntegral $ length $ filter (==j) $ xs) [1 .. numIslands]
-    xs        = drop (n `div` 10) $ scanl f 3 (zip (proposedJumps seed) (acceptOrRejects seed))
+    numVisits = map (\j -> fromIntegral $ length $ filter (==j) $ xs)
+                    [1 .. numIslands]
+    xs        = drop (n `div` 10) $
+                scanl f 3 (zip (proposedJumps seed) (acceptOrRejects seed))
 \end{code}
 
 We can then compute the root mean square error for this particular sample size.
@@ -111,7 +113,7 @@ rmsError n = sqrt $ (/(fromIntegral numIslands)) $
              sum $ map (^2) $ zipWith (-) actual (runMC n)
 \end{code}
 
-\section{A Bernoulli Example}
+\subsection{A Bernoulli Example}
 
 We can also code the Metropolis algorithm for the example in which samples are drawn from a Bernoulli distribution.
 First we can define the likelihood for drawing drawing a specific sequence of 0's and 1's from a binomial distribution with parrameter $\theta$.
@@ -128,14 +130,14 @@ myData = [1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0]
 We define a function which defines one step of the Metropolis algorithm.
 
 \begin{code}
-oneStep currentPosition (proposedJump, acceptOrReject) =
+oneStep currPosition (propJump, acceptOrReject) =
   if acceptOrReject < probAccept
     then
-      currentPosition + proposedJump
+      currPosition + propJump
     else
-      currentPosition
+      currPosition
   where
-    probAccept = min 1 (p (currentPosition + proposedJump) / p currentPosition)
+    probAccept = min 1 (p (currPosition + propJump) / p currPosition)
     p x | x < 0 = 0
         | x > 1 = 0
         | otherwise = pAux myData x
@@ -150,13 +152,15 @@ Finally we need some proposed jumps; following the example we generate these fro
 
 \begin{code}
 normals :: [Double]
-normals =  fst $ runState (replicateM n (sampleRVar (normal 0 0.1))) (mkStdGen seed)
+normals =  fst $ runState (replicateM n (sampleRVar (normal 0 0.1)))
+                          (mkStdGen seed)
 \end{code}
 
 And now we can run the Metropolis algorithm and, for example, find the mean of the posterior.
 
 \begin{code}
-accepteds = drop (n `div` 10) $ scanl oneStep 0.5 (zip normals (acceptOrRejects seed))
+accepteds = drop (n `div` 10) $
+            scanl oneStep 0.5 (zip normals (acceptOrRejects seed))
 
 mean = total / count
          where
