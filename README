@@ -1,1 +1,5 @@
-
+This was going to be an EDSL in Haskell to Jags (after all there is no
+need to re-invent the Gibbs sampler wheel) but the world has moved
+on. First let us do some examples of Bayesian regression using
+Hamiltonian Monte Carlo and then maybe we can think about interfacing
+to STAN.
