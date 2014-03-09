@@ -1,5 +1,61 @@
+Introduction
+============
+
+Suppose you have some data to which you wish to fit a straight
+line. For simplicity, let us consider a line which always goes through
+origin. Clearly, this is not realistic but will simplify the
+calculations and prepare us for doing multivariate regression.
+
+Preamble
+--------
+
+> {-# OPTIONS_GHC -Wall                      #-}
+> {-# OPTIONS_GHC -fno-warn-name-shadowing   #-}
+> {-# OPTIONS_GHC -fno-warn-type-defaults    #-}
+> {-# OPTIONS_GHC -fno-warn-unused-do-bind   #-}
+> {-# OPTIONS_GHC -fno-warn-missing-methods  #-}
+> {-# OPTIONS_GHC -fno-warn-orphans          #-}
+
+> {-# LANGUAGE NoMonomorphismRestriction #-}
+
+> module Main where
+>
+> import qualified Data.Vector.Unboxed as V
+> import Data.Random.Source.PureMT
+> import Data.Random
+> import Control.Monad.State
+>
+> import Data.Colour
+> import Control.Lens hiding ( (#) )
+> import Graphics.Rendering.Chart hiding ( translate )
+> import Diagrams.Backend.Cairo.CmdLine
+>
+> import Diagrams.Backend.CmdLine
+> import Diagrams.Prelude hiding ( sample, render )
+>
+> import Data.Default.Class
+>
+> import Graphics.Rendering.Chart.Backend.Diagrams
+>
+> import System.IO.Unsafe
+
 Conjugate Prior
 ===============
+
+Ultimately we are going to use a Monte Carlo Markov Chain (MCMC)
+method to calculate the posterior distribution. Before we do and so
+that we have something to test against let us first consider a
+conjugate prior. A conjugate prior is a member of a family of
+distributions in which the posterior is a member of the same family.
+
+> testXs :: Int ->V.Vector Double
+> testXs m =
+>   V.fromList $
+>   evalState (replicateM m (sample StdUniform))
+>   (pureMT 2)
+
+> v :: Double
+> v = 1.0
 
 The likelihood
 
@@ -19,11 +75,18 @@ $$
 f(\theta | x) \propto h^{a - 1 + \nu / 2 + 1 / 2 + 1 / 2} \exp\Bigg[{-bh}{-\frac{h}{2V}(\beta -d)^2}{-\frac{h\nu}{2s^{-2}}}{-\frac{h}{2}(\beta - \hat{\beta})^2\sum_{i = 1}^N x_i^2}\Bigg]
 $$
 
-Equating powers of $h$
+Equating powers of $h$ we get
 
 $$
 a' = a + \frac{\nu}{2} + \frac{1}{2} = a + \frac{N}{2}
 $$
+
+which we can represent in Haskell as
+
+> a :: Double
+> a = v / 2.0
+>
+> a' = a + (fromIntegral nSamples) / 2.0
 
 Now let us examine the factors inside the exponential
 
@@ -102,35 +165,6 @@ b + \frac{1}{2}
 \sum y_i^2\bigg)
 $$
 
-> {-# OPTIONS_GHC -Wall                      #-}
-> {-# OPTIONS_GHC -fno-warn-name-shadowing   #-}
-> {-# OPTIONS_GHC -fno-warn-type-defaults    #-}
-> {-# OPTIONS_GHC -fno-warn-unused-do-bind   #-}
-> {-# OPTIONS_GHC -fno-warn-missing-methods  #-}
-> {-# OPTIONS_GHC -fno-warn-orphans          #-}
-
-> {-# LANGUAGE NoMonomorphismRestriction #-}
-
-> module Main where
->
-> import qualified Data.Vector.Unboxed as V
-> import Data.Random.Source.PureMT
-> import Data.Random
-> import Control.Monad.State
->
-> import Data.Colour
-> import Control.Lens hiding ( (#) )
-> import Graphics.Rendering.Chart hiding ( translate )
-> import Diagrams.Backend.Cairo.CmdLine
->
-> import Diagrams.Backend.CmdLine
-> import Diagrams.Prelude hiding ( sample, render )
->
-> import Data.Default.Class
->
-> import Graphics.Rendering.Chart.Backend.Diagrams
->
-> import System.IO.Unsafe
 >
 > nSamples :: Int
 > nSamples = 10
@@ -144,20 +178,8 @@ $$
 > nu :: Double
 > nu = 1.0
 >
-> v :: Double
-> v = 1.0
->
-> a :: Double
-> a = v / 2.0
->
 > b :: Double
 > b = v / (2.0 * recip v**2)
->
-> testXs :: Int ->V.Vector Double
-> testXs m =
->   V.fromList $
->   evalState (replicateM m (sample StdUniform))
->   (pureMT 2)
 >
 > testXs' :: Int ->V.Vector Double
 > testXs' m =
@@ -221,8 +243,6 @@ $$
 > diag :: Colour Double -> [(Double, Double)] -> QDiagram Cairo R2 Any
 > diag c prices = fst $ runBackend denv (render (chart c prices) (500, 500))
 >
-> a' = a + (fromIntegral nSamples) / 2.0
->
 > xs = testXs nSamples
 > ys = testYs nSamples
 >
@@ -236,7 +256,10 @@ $$
 > d' = v' * (d * recip v + betaHat * xs2)
 >
 > b' = b + 0.5 * (d**2 / v - d'**2 / v' + ys2)
->
+
+A Gibbs Sampler
+===============
+
 > main :: IO ()
 > main = do
 >   displayHeader "TestInteractive.png"
