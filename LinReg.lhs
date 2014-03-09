@@ -133,7 +133,7 @@ $$
 > import System.IO.Unsafe
 >
 > nSamples :: Int
-> nSamples = 100
+> nSamples = 10
 >
 > d :: Double
 > d = 2.0
@@ -220,6 +220,22 @@ $$
 >
 > diag :: Colour Double -> [(Double, Double)] -> QDiagram Cairo R2 Any
 > diag c prices = fst $ runBackend denv (render (chart c prices) (500, 500))
+>
+> a' = a + (fromIntegral nSamples) / 2.0
+>
+> xs = testXs nSamples
+> ys = testYs nSamples
+>
+> xs2 = V.sum $ V.map (**2) xs
+> ys2 = V.sum $ V.map (**2) ys
+>
+> v' = recip (recip v + xs2)
+>
+> betaHat = (V.sum $ V.zipWith (*) xs ys) / xs2
+>
+> d' = v' * (d * recip v + betaHat * xs2)
+>
+> b' = b + 0.5 * (d**2 / v - d'**2 / v' + ys2)
 >
 > main :: IO ()
 > main = do
