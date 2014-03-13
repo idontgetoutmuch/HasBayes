@@ -1,3 +1,11 @@
+% Bayesian Regession and Gibbs Sampler in Haskell
+% Dominic Steinitz
+% 9th March 2014
+
+---
+bibliography: Bayes.bib
+---
+
 Introduction
 ============
 
@@ -18,12 +26,14 @@ Preamble
 
 > {-# LANGUAGE NoMonomorphismRestriction #-}
 
-> module Main where
+> module LinReg where
 >
 > import qualified Data.Vector.Unboxed as V
 > import Data.Random.Source.PureMT
 > import Data.Random
 > import Control.Monad.State
+>
+> import Numeric.SpecFunctions
 >
 > import Data.Colour
 > import Control.Lens hiding ( (#) )
@@ -48,14 +58,15 @@ that we have something to test against let us first consider a
 conjugate prior. A conjugate prior is a member of a family of
 distributions in which the posterior is a member of the same family.
 
-> testXs :: Int ->V.Vector Double
+> testXs :: Int -> V.Vector Double
 > testXs m =
 >   V.fromList $
 >   evalState (replicateM m (sample StdUniform))
 >   (pureMT 2)
 
-> v :: Double
-> v = 1.0
+    [ghci]
+    import LinReg
+    testXs 5
 
 The likelihood
 
@@ -80,13 +91,6 @@ Equating powers of $h$ we get
 $$
 a' = a + \frac{\nu}{2} + \frac{1}{2} = a + \frac{N}{2}
 $$
-
-which we can represent in Haskell as
-
-> a :: Double
-> a = v / 2.0
->
-> a' = a + (fromIntegral nSamples) / 2.0
 
 Now let us examine the factors inside the exponential
 
@@ -167,20 +171,60 @@ $$
 
 >
 > nSamples :: Int
-> nSamples = 10
+> nSamples = 1000
+
+> a :: Double
+> a = 1.0
 >
+> a' :: Double
+> a' = a + (fromIntegral nSamples) / 2.0
+
+    [ghci]
+    import LinReg
+    a'
+
+> v :: Double
+> v = 1.0
+
+> xs :: V.Vector Double
+> xs = testXs nSamples
+
+> xs2 :: Double
+> xs2 = V.sum $ V.map (**2) xs
+
+> v' :: Double
+> v' = recip (recip v + xs2)
+
+    [ghci]
+    v'
+
 > d :: Double
 > d = 2.0
 >
-> s2InvPrior :: Double
-> s2InvPrior = 1.0
-
-> nu :: Double
-> nu = 1.0
+> betaHat :: Double
+> betaHat = (V.sum $ V.zipWith (*) xs ys) / xs2
 >
+> d' :: Double
+> d' = v' * (d * recip v + betaHat * xs2)
+
+    [ghci]
+    d'
+
 > b :: Double
 > b = v / (2.0 * recip v**2)
 >
+> ys :: V.Vector Double
+> ys = testYs nSamples
+>
+> ys2 :: Double
+> ys2 = V.sum $ V.map (**2) ys
+>
+> b' :: Double
+> b' = b + 0.5 * (d**2 / v - d'**2 / v' + ys2)
+
+    [ghci]
+    b'
+
 > testXs' :: Int ->V.Vector Double
 > testXs' m =
 >   V.fromList $
@@ -243,25 +287,45 @@ $$
 > diag :: Colour Double -> [(Double, Double)] -> QDiagram Cairo R2 Any
 > diag c prices = fst $ runBackend denv (render (chart c prices) (500, 500))
 >
-> xs = testXs nSamples
-> ys = testYs nSamples
+
+> diag' :: QDiagram Cairo R2 Any
+> diag' = fst $ runBackend denv (render sinusoid (500, 500))
+
+> logGammaPdf alpha beta x = unNorm - logGamma alpha
+>   where
+>     unNorm = alpha * (log beta) + (alpha - 1) * log x - beta * x
+
+
+> setLinesBlue :: PlotLines a b -> PlotLines a b
+> setLinesBlue = plot_lines_style  . line_color .~ opaque blue
+
+> sinusoid = toRenderable layout
+>   where
+>     am :: Double -> Double
+>     am x = exp (logGammaPdf 6.2 0.12 x)
 >
-> xs2 = V.sum $ V.map (**2) xs
-> ys2 = V.sum $ V.map (**2) ys
+>     sinusoid1 = plot_lines_values .~ [[ (x,(am x)) | x <- [0,(0.5)..400]]]
+>               $ plot_lines_style  . line_color .~ opaque blue
+>               $ plot_lines_title .~ "am"
+>               $ def
 >
-> v' = recip (recip v + xs2)
+>     sinusoid2 = plot_points_style .~ filledCircles 2 (opaque red)
+>               $ plot_points_values .~ [ (x,(am x)) | x <- [0,7..400]]
+>               $ plot_points_title .~ "am points"
+>               $ def
 >
-> betaHat = (V.sum $ V.zipWith (*) xs ys) / xs2
->
-> d' = v' * (d * recip v + betaHat * xs2)
->
-> b' = b + 0.5 * (d**2 / v - d'**2 / v' + ys2)
+>     layout = layout_title .~ "Amplitude Modulation"
+>            $ layout_plots .~ [toPlot sinusoid1,
+>                               toPlot sinusoid2]
+>            $ def
+
 
 A Gibbs Sampler
 ===============
 
 > main :: IO ()
 > main = do
+>   displayHeader "Gamma.png" diag'
 >   displayHeader "TestInteractive.png"
 >     ((diag red prices # scaleX 0.4 # scaleY 0.4 # translate (r2 (0.1, 0.0)))
 >      <> (diag blue prices' # scaleX 0.6 # scaleY 0.6 # translate (r2 (0.2, 0.0))))
