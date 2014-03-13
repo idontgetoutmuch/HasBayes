@@ -33,21 +33,12 @@ Preamble
 > import Data.Random
 > import Control.Monad.State
 >
-> import Numeric.SpecFunctions
->
-> import Data.Colour
-> import Control.Lens hiding ( (#) )
-> import Graphics.Rendering.Chart hiding ( translate )
 > import Diagrams.Backend.Cairo.CmdLine
 >
 > import Diagrams.Backend.CmdLine
 > import Diagrams.Prelude hiding ( sample, render )
 >
-> import Data.Default.Class
->
-> import Graphics.Rendering.Chart.Backend.Diagrams
->
-> import System.IO.Unsafe
+> import LinRegAux
 
 Conjugate Prior
 ===============
@@ -171,7 +162,7 @@ $$
 
 >
 > nSamples :: Int
-> nSamples = 1000
+> nSamples = 10
 
 > a :: Double
 > a = 1.0
@@ -225,6 +216,39 @@ $$
     [ghci]
     b'
 
+We can plot the prior and posterior gamma distributions. Even if we
+only sample 10 observations we can see that the posterior gives quite
+a tight estimate. In the example below we take the prior gamma to have
+shape 4.0 and rate 1.0 but this does not seem to have much influence
+of the posterior,
+
+```{.dia height='600'}
+import LinReg
+import LinRegAux
+
+dia = diagGamma 4.0 1.0 a' b'
+````
+
+We can also plot the prior and posterior normal distributions assuming
+that $h = 1.0$. Note that after 10 observations we do not get a very
+good estimate but we get a much better one after 100 observations.
+
+```{.dia height='600'}
+import LinReg
+import LinRegAux
+
+dia = diagNormal d (sqrt v) d' (sqrt v') 1.879657598238415 (sqrt 3.146906057947862e-2)
+````
+
+```{.dia height='600'}
+import LinReg
+import LinRegAux
+
+dia = (diag red prices # scaleX 0.4 # scaleY 0.4 # translate (r2 (0.1, 0.0)))
+      |||
+      (diag blue prices' # scaleX 0.4 # scaleY 0.4 # translate (r2 (0.2, 0.0)))
+````
+
 > testXs' :: Int ->V.Vector Double
 > testXs' m =
 >   V.fromList $
@@ -257,67 +281,13 @@ $$
 > prices' :: [(Double,Double)]
 > prices' = V.toList $ V.zip (testXs' nSamples) (testYs' nSamples)
 >
-> chart :: Colour Double ->[(Double, Double)] ->Graphics.Rendering.Chart.Renderable ()
-> chart c prices = toRenderable layout
->   where
->
->     price1 = plot_points_style . point_color .~ opaque c
->            $ plot_points_values .~ prices
->            $ plot_points_title .~ "price 1"
->            $ def
->
->     layout = layoutlr_title .~"Price History"
->            $ layoutlr_left_axis . laxis_override .~ axisGridHide
->            $ layoutlr_right_axis . laxis_override .~ axisGridHide
->            $ layoutlr_x_axis . laxis_override .~ axisGridHide
->            $ layoutlr_plots .~ [Left (toPlot price1),
->                                 Right (toPlot price1)]
->            $ layoutlr_grid_last .~ False
->            $ def
->
 > displayHeader :: FilePath -> Diagram B R2 -> IO ()
 > displayHeader fn =
 >   mainRender ( DiagramOpts (Just 900) (Just 600) fn
 >              , DiagramLoopOpts False Nothing 0
 >              )
 >
-> denv :: DEnv
-> denv = unsafePerformIO $ defaultEnv vectorAlignmentFns 500 500
->
-> diag :: Colour Double -> [(Double, Double)] -> QDiagram Cairo R2 Any
-> diag c prices = fst $ runBackend denv (render (chart c prices) (500, 500))
->
 
-> diag' :: QDiagram Cairo R2 Any
-> diag' = fst $ runBackend denv (render sinusoid (500, 500))
-
-> logGammaPdf alpha beta x = unNorm - logGamma alpha
->   where
->     unNorm = alpha * (log beta) + (alpha - 1) * log x - beta * x
-
-
-> setLinesBlue :: PlotLines a b -> PlotLines a b
-> setLinesBlue = plot_lines_style  . line_color .~ opaque blue
-
-> sinusoid = toRenderable layout
->   where
->     am :: Double -> Double
->     am x = exp (logGammaPdf 6.2 0.12 x)
->
->     sinusoid1 = plot_lines_values .~ [[ (x,(am x)) | x <- [0,(0.5)..400]]]
->               $ plot_lines_style  . line_color .~ opaque blue
->               $ plot_lines_title .~ "am"
->               $ def
->
->     sinusoid2 = plot_points_style .~ filledCircles 2 (opaque red)
->               $ plot_points_values .~ [ (x,(am x)) | x <- [0,7..400]]
->               $ plot_points_title .~ "am points"
->               $ def
->
->     layout = layout_title .~ "Amplitude Modulation"
->            $ layout_plots .~ [toPlot sinusoid1,
->                               toPlot sinusoid2]
->            $ def
 
 
 A Gibbs Sampler
@@ -325,8 +295,8 @@ A Gibbs Sampler
 
 > main :: IO ()
 > main = do
->   displayHeader "Gamma.png" diag'
+>   displayHeader "Gamma.png" (diagGamma 4.0 1.0 a' b')
 >   displayHeader "TestInteractive.png"
 >     ((diag red prices # scaleX 0.4 # scaleY 0.4 # translate (r2 (0.1, 0.0)))
->      <> (diag blue prices' # scaleX 0.6 # scaleY 0.6 # translate (r2 (0.2, 0.0))))
+>      ||| (diag blue prices' # scaleX 0.4 # scaleY 0.4 # translate (r2 (0.2, 0.0))))
 >   putStrLn "Hello"
