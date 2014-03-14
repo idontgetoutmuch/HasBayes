@@ -40,6 +40,62 @@ Preamble
 >
 > import LinRegAux
 
+Test Data
+---------
+
+Let's create some noisy test data.
+
+> testXs :: Int -> Int -> V.Vector Double
+> testXs seed nSamples =
+>   V.fromList $
+>   evalState (replicateM nSamples (sample StdUniform))
+>   (pureMT $ fromIntegral seed)
+
+> testEpsilons :: Int -> Int ->V.Vector Double
+> testEpsilons seed nSamples =
+>   V.fromList $
+>   evalState (replicateM nSamples (sample StdNormal))
+>   (pureMT $ fromIntegral seed)
+>
+> testYs :: V.Vector Double -> V.Vector Double -> V.Vector Double
+> testYs xs es =
+>   V.zipWith (\x e -> d * x + e) xs es
+>
+> testVs :: Int -> Int -> V.Vector (Double, Double)
+> testVs seed nSamples = V.zip xs ys
+>   where
+>     xs = testXs seed nSamples
+>     es = testEpsilons (seed + 1) nSamples
+>     ys = testYs xs es
+>
+> testData :: Int -> Int -> [(Double,Double)]
+> testData seed nSamples = V.toList $ testVs seed nSamples
+
+We can look at this
+
+    [ghci]
+    import LinReg
+    testXs 2 5
+    testEpsilons 2 5
+
+but a picture paints a thousand words, and given we have taken the
+variance of the added noise to be pretty big, it is really only after
+about 1,000 samples that it starts to look like there is a linear
+relationship.
+
+```{.dia height='600'}
+import LinReg
+import LinRegAux
+
+dia = ((diag red (testData 2 10) # scaleX 0.3 # scaleY 0.3)
+       |||
+       (diag blue (testData 3 100) # scaleX 0.3 # scaleY 0.3))
+      ===
+      ((diag blue (testData 3 1000) # scaleX 0.3 # scaleY 0.3)
+       |||
+       (diag green (testData 6 10000) # scaleX 0.3 # scaleY 0.3))
+````
+
 Conjugate Prior
 ===============
 
@@ -49,35 +105,27 @@ that we have something to test against let us first consider a
 conjugate prior. A conjugate prior is a member of a family of
 distributions in which the posterior is a member of the same family.
 
-> testXs :: Int -> V.Vector Double
-> testXs m =
->   V.fromList $
->   evalState (replicateM m (sample StdUniform))
->   (pureMT 2)
+Let us take a prior from the normal-Gamma distribution $NG(\mu,
+\lambda | \mu_0, \kappa_0, \alpha_0, \beta_0)$
 
-    [ghci]
-    import LinReg
-    testXs 5
+$$
+\pi(\theta) \propto \lambda^{1/2} \exp\Bigg[{-\frac{\lambda}{2V}(\beta -\mu_0)^2}\Bigg]\lambda^{a - 1}\exp\Bigg[{-b\lambda}\Bigg]
+$$
+
 
 The likelihood
 
 $$
-f(x | \theta) \propto  h^{1/2} \exp \Bigg[-\frac{h}{2}(\beta - \hat{\beta})^2\sum_{i = 1}^N x_i^2\Bigg] h^{\nu / 2}\exp{\Bigg[-\frac{h\nu}{2s^{-2}}\Bigg]}
-$$
-
-The prior
-
-$$
-\pi(\theta) \propto h^{1/2} \exp\Bigg[{-\frac{h}{2V}(\beta -d)^2}\Bigg]h^{a - 1}\exp\Bigg[{-bh}\Bigg]
+f(x | \theta) \propto  \lambda^{1/2} \exp \Bigg[-\frac{\lambda}{2}(\beta - \hat{\beta})^2\sum_{i = 1}^N x_i^2\Bigg] \lambda^{\nu / 2}\exp{\Bigg[-\frac{\lambda\nu}{2s^{-2}}\Bigg]}
 $$
 
 The posterior
 
 $$
-f(\theta | x) \propto h^{a - 1 + \nu / 2 + 1 / 2 + 1 / 2} \exp\Bigg[{-bh}{-\frac{h}{2V}(\beta -d)^2}{-\frac{h\nu}{2s^{-2}}}{-\frac{h}{2}(\beta - \hat{\beta})^2\sum_{i = 1}^N x_i^2}\Bigg]
+f(\theta | x) \propto \lambda^{a - 1 + \nu / 2 + 1 / 2 + 1 / 2} \exp\Bigg[{-b\lambda}{-\frac{\lambda}{2V}(\beta -\mu_0)^2}{-\frac{\lambda\nu}{2s^{-2}}}{-\frac{\lambda}{2}(\beta - \hat{\beta})^2\sum_{i = 1}^N x_i^2}\Bigg]
 $$
 
-Equating powers of $h$ we get
+Equating powers of $\lambda$ we get
 
 $$
 a' = a + \frac{\nu}{2} + \frac{1}{2} = a + \frac{N}{2}
@@ -86,9 +134,9 @@ $$
 Now let us examine the factors inside the exponential
 
 $$
--b'h - \frac{h}{2V'}(\beta - d')^2 =
--bh -  \frac{h}{2V}(\beta - d)^2
--\frac{h\nu}{2s^{-2}} - \frac{h}{2}(\beta - \hat{\beta})^2\sum_{i = 1}^N x_i^2
+-b'\lambda - \frac{\lambda}{2V'}(\beta - \mu_0')^2 =
+-b\lambda -  \frac{\lambda}{2V}(\beta - \mu_0)^2
+-\frac{\lambda\nu}{2s^{-2}} - \frac{\lambda}{2}(\beta - \hat{\beta})^2\sum_{i = 1}^N x_i^2
 $$
 
 Equating terms in $\beta^2$
@@ -106,20 +154,20 @@ $$
 Equating terms in $\beta$
 
 $$
-\frac{d'}{V'} = \frac{d}{V} + \hat{\beta}\sum_{i = 1}^N x_i^2
+\frac{\mu_0'}{V'} = \frac{\mu_0}{V} + \hat{\beta}\sum_{i = 1}^N x_i^2
 $$
 
 and so
 
 $$
-d' = V'\bigg(dV^{-1} + \hat{\beta}\sum_{i = 1}^N x_i^2\bigg)
+\mu_0' = V'\bigg(\mu_0V^{-1} + \hat{\beta}\sum_{i = 1}^N x_i^2\bigg)
 $$
 
 Equating constant terms
 
 $$
-b' + \frac{d'^2}{2V'} =
-b + \frac{d^2}{2V} + \frac{\nu}{2s^{-2}} +
+b' + \frac{\mu_0'^2}{2V'} =
+b + \frac{\mu_0^2}{2V} + \frac{\nu}{2s^{-2}} +
 \frac{\hat{\beta}^2\sum_{i = 1}^N x_i^2}{2}
 $$
 
@@ -128,7 +176,7 @@ and so
 $$
 b' =
 b + \frac{1}{2}
-\bigg(\frac{d^2}{V} - \frac{d'^2}{V'} +
+\bigg(\frac{\mu_0^2}{V} - \frac{\mu_0'^2}{V'} +
 \frac{\nu}{s^{-2}} +
 \hat{\beta}^2\sum_{i = 1}^N x_i^2\bigg)
 $$
@@ -156,13 +204,14 @@ giving
 $$
 b' =
 b + \frac{1}{2}
-\bigg(\frac{d^2}{V} - \frac{d'^2}{V'} +
+\bigg(\frac{\mu_0^2}{V} - \frac{\mu_0'^2}{V'} +
 \sum y_i^2\bigg)
 $$
 
 >
-> nSamples :: Int
+> nSamples, seed :: Int
 > nSamples = 10
+> seed = 2
 
 > a :: Double
 > a = 1.0
@@ -177,8 +226,11 @@ $$
 > v :: Double
 > v = 1.0
 
+> zs :: V.Vector (Double, Double)
+> zs = testVs seed nSamples
+>
 > xs :: V.Vector Double
-> xs = testXs nSamples
+> xs = V.map fst zs
 
 > xs2 :: Double
 > xs2 = V.sum $ V.map (**2) xs
@@ -205,7 +257,7 @@ $$
 > b = v / (2.0 * recip v**2)
 >
 > ys :: V.Vector Double
-> ys = testYs nSamples
+> ys = V.map snd zs
 >
 > ys2 :: Double
 > ys2 = V.sum $ V.map (**2) ys
@@ -240,55 +292,12 @@ import LinRegAux
 dia = diagNormal d (sqrt v) d' (sqrt v') 1.879657598238415 (sqrt 3.146906057947862e-2)
 ````
 
-```{.dia height='600'}
-import LinReg
-import LinRegAux
 
-dia = (diag red prices # scaleX 0.4 # scaleY 0.4 # translate (r2 (0.1, 0.0)))
-      |||
-      (diag blue prices' # scaleX 0.4 # scaleY 0.4 # translate (r2 (0.2, 0.0)))
-````
-
-> testXs' :: Int ->V.Vector Double
-> testXs' m =
->   V.fromList $
->   evalState (replicateM m (sample StdUniform))
->   (pureMT 3)
->
-> testEpsilons :: Int ->V.Vector Double
-> testEpsilons m =
->   V.fromList $
->   evalState (replicateM m (sample StdNormal))
->   (pureMT 2)
->
-> testEpsilons' :: Int ->V.Vector Double
-> testEpsilons' m =
->   V.fromList $
->   evalState (replicateM m (sample StdNormal))
->   (pureMT 3)
->
-> testYs :: Int ->V.Vector Double
-> testYs m = V.zipWith (\x e -> d * x + e)
->            (testXs m) (testEpsilons m)
->
-> testYs' :: Int ->V.Vector Double
-> testYs' m = V.zipWith (\x e -> d * x + e)
->            (testXs' m) (testEpsilons' m)
->
-> prices :: [(Double,Double)]
-> prices = V.toList $ V.zip (testXs nSamples) (testYs nSamples)
->
-> prices' :: [(Double,Double)]
-> prices' = V.toList $ V.zip (testXs' nSamples) (testYs' nSamples)
->
 > displayHeader :: FilePath -> Diagram B R2 -> IO ()
 > displayHeader fn =
 >   mainRender ( DiagramOpts (Just 900) (Just 600) fn
 >              , DiagramLoopOpts False Nothing 0
 >              )
->
-
-
 
 A Gibbs Sampler
 ===============
@@ -297,6 +306,9 @@ A Gibbs Sampler
 > main = do
 >   displayHeader "Gamma.png" (diagGamma 4.0 1.0 a' b')
 >   displayHeader "TestInteractive.png"
->     ((diag red prices # scaleX 0.4 # scaleY 0.4 # translate (r2 (0.1, 0.0)))
->      ||| (diag blue prices' # scaleX 0.4 # scaleY 0.4 # translate (r2 (0.2, 0.0))))
+>     (((diag red (testData 2 10) # scaleX 0.4 # scaleY 0.4 # translate (r2 (0.1, 0.0)))
+>       === (diag blue (testData 4 100) # scaleX 0.4 # scaleY 0.4 # translate (r2 (0.2, 0.0))))
+>     |||
+>     ((diag red (testData 2 10) # scaleX 0.4 # scaleY 0.4 # translate (r2 (0.1, 0.0)))
+>       === (diag blue (testData 4 100) # scaleX 0.4 # scaleY 0.4 # translate (r2 (0.2, 0.0)))))
 >   putStrLn "Hello"
