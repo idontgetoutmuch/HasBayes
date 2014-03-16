@@ -83,7 +83,7 @@ variance of the added noise to be pretty big, it is really only after
 about 1,000 samples that it starts to look like there is a linear
 relationship.
 
-```{.dia height='600'}
+```{.dia height='800'}
 import LinReg
 import LinRegAux
 
@@ -94,6 +94,60 @@ dia = ((diag red (testData 2 10) # scaleX 0.3 # scaleY 0.3)
       ((diag blue (testData 3 1000) # scaleX 0.3 # scaleY 0.3)
        |||
        (diag green (testData 6 10000) # scaleX 0.3 # scaleY 0.3))
+````
+
+A Simple Example
+================
+
+Suppose the prior is $\mu \sim \cal{N}(\mu_0, \tau)$, that is
+
+$$
+\pi(\mu) \propto \exp{\bigg( -\frac{(\mu - \mu_0)^2}{2\tau^2}\bigg)}
+$$
+
+Our data is IID normal, $x_i \sim \cal{N}(\mu, \sigma)$, so the likelihood is
+
+$$
+p(x\,|\,\mu, \sigma) \propto \prod_{i=1}^n \exp{\bigg( -\frac{(x_i - \mu)^2}{2\sigma^2}\bigg)}
+$$
+
+This gives a posterior of
+
+$$
+\begin{aligned}
+p(\mu\,|\, \boldsymbol{x}) &\propto \exp{\bigg(
+-\frac{(\mu - \mu_0)^2}{2\tau^2}
+- \frac{\sum_{i=1}^n(x_i - \mu)^2}{2\sigma^2}\bigg)} \\
+&\propto \exp{\bigg[-\frac{1}{2}\bigg(\frac{\mu^2 \sigma^2 -2\sigma^2\mu\mu_0 - 2\tau^2n\bar{x}\mu + \tau^2 n\mu^2}{\sigma^2\tau^2}\bigg)\bigg]} \\
+&= \exp{\bigg[-\frac{1}{2}\bigg(\frac{ (n\tau^2 + \sigma^2)\mu^2 - 2(\sigma^2\mu_0 - \tau^2n\bar{x})\mu}{\sigma^2\tau^2}\bigg)\bigg]} \\
+&= \exp{\Bigg[-\frac{1}{2}\Bigg(\frac{ \mu^2 - 2\mu\frac{(\sigma^2\mu_0 - \tau^2n\bar{x})}{(n\tau^2 + \sigma^2)}}{\frac{\sigma^2\tau^2}{(n\tau^2 + \sigma^2)}}\Bigg)\Bigg]} \\
+&\propto \exp{\Bigg[-\frac{1}{2}\Bigg(\frac{\big(\mu - \frac{(\sigma^2\mu_0 - \tau^2n\bar{x})}{(n\tau^2 + \sigma^2)}\big)^2}{\frac{\sigma^2\tau^2}{(n\tau^2 + \sigma^2)}}\Bigg)\Bigg]}
+\end{aligned}
+$$
+
+In other words
+
+$$
+\mu\,|\, \boldsymbol{x} \sim \cal{N}\bigg(\frac{\sigma^2\mu_0 + n\tau^2\bar{x}}{n\tau^2 + \sigma^2}, \frac{\sigma^2\tau^2}{n\tau^2 + \sigma^2} \bigg)
+$$
+
+> simpleXs :: [Double]
+> simpleXs =
+>   evalState (replicateM nSamples (sample (Normal 10.0 1.0)))
+>   (pureMT $ fromIntegral seed)
+
+> mu_0, rho, sigma, mu_1, rho_1 :: Double
+> mu_0 = 11.0
+> rho = 2.0
+> sigma = 1.0
+> mu_1 = (sigma**2 * mu_0 + rho**2 * sum simpleXs) / (fromIntegral nSamples * rho**2 + sigma**2)
+> rho_1 = sigma**2 * rho**2 / (fromIntegral nSamples * rho**2 + sigma**2)
+
+```{.dia height='600'}
+import LinReg
+import LinRegAux
+
+dia = diagNormal mu_0 rho mu_1 rho_1 mu_1 rho_1
 ````
 
 Conjugate Prior
