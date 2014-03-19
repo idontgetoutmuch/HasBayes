@@ -171,21 +171,32 @@ diagNormals :: [(Double, Double, Colour Double, String)] ->
 diagNormals abs = fst $ runBackend denv
                   (render (normalPlots abs) (500, 500))
 
-barChart :: [(Double, Double)] -> Graphics.Rendering.Chart.Renderable ()
-barChart bvs = toRenderable layout
+barChart :: [(Double, Double)] ->
+            [(Double, Double)] ->
+            Graphics.Rendering.Chart.Renderable ()
+barChart bvs bvs' = toRenderable layout
   where
     layout =
       layout_title .~ "Posterior via MCMC"
-      $ layout_plots .~ [ plotBars bars2 ]
+      $ layout_plots .~ [ plotBars bars1
+                        , plotBars bars2
+                        ]
       $ def
 
-    bars2 =
+    bars1 =
       plot_bars_titles .~ ["MCMC"]
       $ plot_bars_values .~ addIndexes (map return $ map snd bvs)
       $ plot_bars_style .~ BarsClustered
-      $ plot_bars_item_styles .~ map (\c -> (solidFillStyle c, Nothing))
-                                     (cycle defaultColorSeq)
+      $ plot_bars_item_styles .~ [(solidFillStyle (blue `withOpacity` 0.5), Nothing)]
       $ def
 
-barDiag :: [(Double, Double)] -> QDiagram Cairo R2 Any
-barDiag bvs = fst $ runBackend denv (render (barChart bvs) (500, 500))
+    bars2 =
+      plot_bars_titles .~ ["Analytic"]
+      $ plot_bars_values .~ addIndexes (map return $ map snd bvs')
+      $ plot_bars_style .~ BarsClustered
+      $ plot_bars_item_styles .~ [(solidFillStyle (red `withOpacity` 0.5), Nothing)]
+      $ def
+
+
+barDiag :: [(Double, Double)] -> [(Double, Double)] -> QDiagram Cairo R2 Any
+barDiag bvs bvs' = fst $ runBackend denv (render (barChart bvs bvs') (500, 500))

@@ -185,7 +185,7 @@ dia = diagNormals [(mu0, rho, blue, "Prior"), (mu1, rho1, red, "Posterior")]
 > test :: [(Double, Int)]
 > test = drop 100000 $
 >        scanl oneStep (10.0, 0) $
->        zip (normalisedProposals 3 0.4 3200000) (acceptOrRejects 4 3200000)
+>        zip (normalisedProposals 3 0.4 {- 3 -} 200000) (acceptOrRejects 4 {- 3 -} 200000)
 >
 > hb :: HBuilder Double (Data.Histogram.Generic.Histogram V.Vector BinD Double)
 > hb = forceDouble -<< mkSimple (binD (10.0 - 1.5*rho) 400 (10.0 + 1.5*rho))
@@ -193,12 +193,16 @@ dia = diagNormals [(mu0, rho, blue, "Prior"), (mu1, rho1, red, "Posterior")]
 > hist :: Histogram V.Vector BinD Double
 > hist = fillBuilder hb (map fst test)
 
-```{.dia height='600'}
-import LinReg
-import LinRegAux
-import Data.Histogram ( asList )
+> analPosterior :: [Double]
+> analPosterior =
+>   evalState (replicateM 100000 (sample (Normal mu1 rho1)))
+>   (pureMT $ fromIntegral 5)
+>
+> histAnal :: Histogram V.Vector BinD Double
+> histAnal = fillBuilder hb analPosterior
 
-dia = (barDiag (zip (map fst $ asList hist) (map snd $ asList hist)))
+```{.dia height='600'}
+dia = image "diagrams/Hist.png" 1.0 1.0
 ````
 
 Conjugate Prior
@@ -400,7 +404,7 @@ dia = diagNormal d (sqrt v) d' (sqrt v') 1.879657598238415 (sqrt 3.1469060579478
 
 > displayHeader :: FilePath -> Diagram B R2 -> IO ()
 > displayHeader fn =
->   mainRender ( DiagramOpts (Just 900) (Just 600) fn
+>   mainRender ( DiagramOpts (Just 900) (Just 700) fn
 >              , DiagramLoopOpts False Nothing 0
 >              )
 
@@ -411,5 +415,5 @@ A Gibbs Sampler
 > main = do
 >   displayHeader "Normal.png" (diagNormals [ (10.0, 2.0, blue, "Prior")
 >                                           , (11.0, 1.0, red, "Posterior")])
->   displayHeader "Hist.png" (barDiag (zip (map fst $ asList hist) (map snd $ asList hist)))
+>   displayHeader "diagrams/Hist.png" (barDiag (zip (map fst $ asList hist) (map snd $ asList hist)) (zip (map fst $ asList histAnal) (map snd $ asList histAnal)))
 
