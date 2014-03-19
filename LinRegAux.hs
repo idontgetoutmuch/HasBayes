@@ -9,7 +9,9 @@ module LinRegAux (
     denv
   , diagGamma
   , diagNormal
+  , diagNormals
   , diag
+  , barDiag
   ) where
 
 import System.IO.Unsafe
@@ -138,3 +140,52 @@ chart c prices = toRenderable layout
 diag :: Colour Double -> [(Double, Double)] -> QDiagram Cairo R2 Any
 diag c prices = fst $ runBackend denv (render (chart c prices) (500, 500))
 
+normalPlots :: [(Double, Double, Colour Double, String)] ->
+               Graphics.Rendering.Chart.Renderable ()
+normalPlots abs = toRenderable layout
+  where
+
+    lower a b = a - 5*b
+    upper a b = a + 5*b
+    gap     b = 10*b / 1000.0
+
+    am :: Double -> [Double]
+    am x = map (\(a, b, _, _) -> normalPdf a b x) abs
+
+    normalPlots = zipWith (
+      \(a, b, c, l) n ->
+      plot_lines_values .~ [[ (x, (am x)!!n) |
+                              x <- [lower a b,lower a b + gap b .. upper a b]]]
+      $ plot_lines_style  . line_color .~ opaque c
+      $ plot_lines_title .~ l ++ " mean = " ++ printf "%3.3f" a ++
+                                  " var = " ++ printf "%3.3f" b
+                   $ def
+      ) abs [0..]
+
+    layout =   layout_title .~ "Normal Prior and Posterior"
+             $ layout_plots .~ (map toPlot normalPlots)
+             $ def
+
+diagNormals :: [(Double, Double, Colour Double, String)] ->
+               QDiagram Cairo R2 Any
+diagNormals abs = fst $ runBackend denv
+                  (render (normalPlots abs) (500, 500))
+
+barChart :: [(Double, Double)] -> Graphics.Rendering.Chart.Renderable ()
+barChart bvs = toRenderable layout
+  where
+    layout =
+      layout_title .~ "Posterior via MCMC"
+      $ layout_plots .~ [ plotBars bars2 ]
+      $ def
+
+    bars2 =
+      plot_bars_titles .~ ["MCMC"]
+      $ plot_bars_values .~ addIndexes (map return $ map snd bvs)
+      $ plot_bars_style .~ BarsClustered
+      $ plot_bars_item_styles .~ map (\c -> (solidFillStyle c, Nothing))
+                                     (cycle defaultColorSeq)
+      $ def
+
+barDiag :: [(Double, Double)] -> QDiagram Cairo R2 Any
+barDiag bvs = fst $ runBackend denv (render (barChart bvs) (500, 500))

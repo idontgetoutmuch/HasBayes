@@ -32,6 +32,9 @@ Preamble
 > import Data.Random.Source.PureMT
 > import Data.Random
 > import Control.Monad.State
+> import Data.Histogram ( asList )
+> import Data.Histogram.Fill
+> import Data.Histogram.Generic ( Histogram )
 >
 > import Diagrams.Backend.Cairo.CmdLine
 >
@@ -133,21 +136,69 @@ $$
 
 > simpleXs :: [Double]
 > simpleXs =
->   evalState (replicateM nSamples (sample (Normal 10.0 1.0)))
+>   evalState (replicateM nSamples (sample (Normal 10.0 2.0)))
 >   (pureMT $ fromIntegral seed)
 
-> mu_0, rho, sigma, mu_1, rho_1 :: Double
-> mu_0 = 11.0
+> mu0, rho, sigma, mu1, rho1, simpleNumerator :: Double
+> mu0 = 11.0
 > rho = 2.0
 > sigma = 1.0
-> mu_1 = (sigma**2 * mu_0 + rho**2 * sum simpleXs) / (fromIntegral nSamples * rho**2 + sigma**2)
-> rho_1 = sigma**2 * rho**2 / (fromIntegral nSamples * rho**2 + sigma**2)
+> simpleNumerator = fromIntegral nSamples * rho**2 + sigma**2
+> mu1 = (sigma**2 * mu0 + rho**2 * sum simpleXs) / simpleNumerator
+> rho1 = sigma**2 * rho**2 / simpleNumerator
 
 ```{.dia height='600'}
 import LinReg
 import LinRegAux
 
-dia = diagNormal mu_0 rho mu_1 rho_1 mu_1 rho_1
+dia = diagNormals [(mu0, rho, blue, "Prior"), (mu1, rho1, red, "Posterior")]
+````
+
+> normalisedProposals :: Int -> Double -> Int -> [Double]
+> normalisedProposals seed sigma nIters =
+>   evalState (replicateM nIters (sample (Normal 0.0 sigma)))
+>   (pureMT $ fromIntegral seed)
+>
+> acceptOrRejects :: Int -> Int -> [Double]
+> acceptOrRejects seed nIters =
+>   evalState (replicateM nIters (sample stdUniform))
+>   (pureMT $ fromIntegral seed)
+>
+> prior :: Double -> Double
+> prior mu = exp (-(mu - mu0)**2) / (2 * rho**2)
+>
+> likelihood :: Double -> [Double] -> Double
+> likelihood mu xs = exp (-sum (map (\x -> (x - mu)**2 / (2 * sigma**2)) xs))
+>
+> posterior :: Double -> [Double] -> Double
+> posterior mu xs = likelihood mu xs * prior mu
+>
+> acceptanceProb :: Double -> Double -> [Double] -> Double
+> acceptanceProb mu mu' xs = min 1.0 ((posterior mu' xs) / (posterior mu xs))
+>
+> oneStep :: (Double, Int) -> (Double, Double) -> (Double, Int)
+> oneStep (mu, nAccs) (proposedJump, acceptOrReject) =
+>   if acceptOrReject < acceptanceProb mu (mu + proposedJump) simpleXs
+>   then (mu + proposedJump, nAccs + 1)
+>   else (mu, nAccs)
+
+> test :: [(Double, Int)]
+> test = drop 100000 $
+>        scanl oneStep (10.0, 0) $
+>        zip (normalisedProposals 3 0.4 3200000) (acceptOrRejects 4 3200000)
+>
+> hb :: HBuilder Double (Data.Histogram.Generic.Histogram V.Vector BinD Double)
+> hb = forceDouble -<< mkSimple (binD (10.0 - 1.5*rho) 400 (10.0 + 1.5*rho))
+>
+> hist :: Histogram V.Vector BinD Double
+> hist = fillBuilder hb (map fst test)
+
+```{.dia height='600'}
+import LinReg
+import LinRegAux
+import Data.Histogram ( asList )
+
+dia = (barDiag (zip (map fst $ asList hist) (map snd $ asList hist)))
 ````
 
 Conjugate Prior
@@ -358,11 +409,7 @@ A Gibbs Sampler
 
 > main :: IO ()
 > main = do
->   displayHeader "Gamma.png" (diagGamma 4.0 1.0 a' b')
->   displayHeader "TestInteractive.png"
->     (((diag red (testData 2 10) # scaleX 0.4 # scaleY 0.4 # translate (r2 (0.1, 0.0)))
->       === (diag blue (testData 4 100) # scaleX 0.4 # scaleY 0.4 # translate (r2 (0.2, 0.0))))
->     |||
->     ((diag red (testData 2 10) # scaleX 0.4 # scaleY 0.4 # translate (r2 (0.1, 0.0)))
->       === (diag blue (testData 4 100) # scaleX 0.4 # scaleY 0.4 # translate (r2 (0.2, 0.0)))))
->   putStrLn "Hello"
+>   displayHeader "Normal.png" (diagNormals [ (10.0, 2.0, blue, "Prior")
+>                                           , (11.0, 1.0, red, "Posterior")])
+>   displayHeader "Hist.png" (barDiag (zip (map fst $ asList hist) (map snd $ asList hist)))
+
