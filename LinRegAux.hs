@@ -12,6 +12,7 @@ module LinRegAux (
   , diagNormals
   , diag
   , barDiag
+  , MCMCAnal (..)
   ) where
 
 import System.IO.Unsafe
@@ -171,32 +172,45 @@ diagNormals :: [(Double, Double, Colour Double, String)] ->
 diagNormals abs = fst $ runBackend denv
                   (render (normalPlots abs) (500, 500))
 
-barChart :: [(Double, Double)] ->
+data MCMCAnal = MCMC | Anal | MCMCAnal
+
+barChart :: MCMCAnal ->
+            [(Double, Double)] ->
             [(Double, Double)] ->
             Graphics.Rendering.Chart.Renderable ()
-barChart bvs bvs' = toRenderable layout
+barChart pt bvs bvs' = toRenderable layout
   where
     layout =
-      layout_title .~ "Posterior via MCMC"
-      $ layout_plots .~ [ plotBars bars1
-                        , plotBars bars2
-                        ]
+      layout_title .~ title pt
+      $ layout_y_axis . laxis_title .~ "Frequency"
+      $ layout_plots .~ (map plotBars $ plots pt)
       $ def
+
+    title MCMC     = "Posterior via MCMC"
+    title Anal     = "Analytic Posterior"
+    title MCMCAnal = "MCMC and Analytic Posteriors Overlaid"
+
+    plots MCMC     = [ bars1 ]
+    plots Anal     = [ bars2 ]
+    plots MCMCAnal = [ bars1, bars2 ]
 
     bars1 =
       plot_bars_titles .~ ["MCMC"]
       $ plot_bars_values .~ addIndexes (map return $ map snd bvs)
       $ plot_bars_style .~ BarsClustered
-      $ plot_bars_item_styles .~ [(solidFillStyle (blue `withOpacity` 0.5), Nothing)]
+      $ plot_bars_item_styles .~ [(solidFillStyle (blue `withOpacity` 0.25), Nothing)]
       $ def
 
     bars2 =
       plot_bars_titles .~ ["Analytic"]
       $ plot_bars_values .~ addIndexes (map return $ map snd bvs')
       $ plot_bars_style .~ BarsClustered
-      $ plot_bars_item_styles .~ [(solidFillStyle (red `withOpacity` 0.5), Nothing)]
+      $ plot_bars_item_styles .~ [(solidFillStyle (red `withOpacity` 0.25), Nothing)]
       $ def
 
+barDiag :: MCMCAnal ->
+           [(Double, Double)] ->
+           [(Double, Double)] ->
+           QDiagram Cairo R2 Any
+barDiag pt bvs bvs' = fst $ runBackend denv (render (barChart pt bvs bvs') (500, 500))
 
-barDiag :: [(Double, Double)] -> [(Double, Double)] -> QDiagram Cairo R2 Any
-barDiag bvs bvs' = fst $ runBackend denv (render (barChart bvs bvs') (500, 500))
