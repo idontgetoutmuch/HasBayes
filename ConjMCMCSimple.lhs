@@ -1,4 +1,4 @@
-% Bayesian Regession and Gibbs Sampler in Haskell
+% Bayesian Analysis: A Conjugate Prior and Markov Chain Monte Carlo
 % Dominic Steinitz
 % 9th March 2014
 
@@ -9,10 +9,33 @@ bibliography: Bayes.bib
 Introduction
 ============
 
-Suppose you have some data to which you wish to fit a straight
-line. For simplicity, let us consider a line which always goes through
-origin. Clearly, this is not realistic but will simplify the
-calculations and prepare us for doing multivariate regression.
+This is meant to be shorter blog post than normal with the expectation
+that the material will be developed further in future blog posts.
+
+A Bayesian will have a prior view of the distribution of some data and
+then based on data, update that view. Mostly the updated distribution,
+the posterior, will not be expressible as an analytic function and
+sampling via Markov Chain Monte Carlo (MCMC) is the only way to determine it.
+
+In some special cases, when the posterior is of the same family of
+distributions as the prior, then the posterior is available
+analytically and we call the posterior and prior **conjugate**. It
+turns out that the normal or Gaussian distribution is conjugate with
+respect to a normal likelihood distribution.
+
+This gives us the opportunity to compare MCMC against the analytic
+solution and give ourselves more confidence that MCMC really does
+deliver the goods.
+
+Some points of note:
+
+* Since we want to display the posterior (and the prior for that
+matter), for histograms we use the
+[histogram-fill](http://hackage.haskell.org/package/histogram-fill)
+package.
+
+* Since we are using Monte Carlo we can use all the cores on our
+computer via one of Haskell's parallelization mechanisms.
 
 Preamble
 --------
@@ -24,17 +47,20 @@ Preamble
 > {-# OPTIONS_GHC -fno-warn-missing-methods  #-}
 > {-# OPTIONS_GHC -fno-warn-orphans          #-}
 
-> {-# LANGUAGE NoMonomorphismRestriction #-}
+> {-# LANGUAGE NoMonomorphismRestriction     #-}
 
-> module LinReg where
+> module ConjMCMCSimple where
 >
 > import qualified Data.Vector.Unboxed as V
 > import Data.Random.Source.PureMT
 > import Data.Random
 > import Control.Monad.State
 > import Data.Histogram ( asList )
+> import qualified Data.Histogram as H
 > import Data.Histogram.Fill
 > import Data.Histogram.Generic ( Histogram )
+> import Data.List
+> import Control.Parallel.Strategies
 >
 > import Diagrams.Backend.Cairo.CmdLine
 >
@@ -43,373 +69,294 @@ Preamble
 >
 > import LinRegAux
 
-Test Data
----------
-
-Let's create some noisy test data.
-
-> testXs :: Int -> Int -> V.Vector Double
-> testXs seed nSamples =
->   V.fromList $
->   evalState (replicateM nSamples (sample StdUniform))
->   (pureMT $ fromIntegral seed)
-
-> testEpsilons :: Int -> Int ->V.Vector Double
-> testEpsilons seed nSamples =
->   V.fromList $
->   evalState (replicateM nSamples (sample StdNormal))
->   (pureMT $ fromIntegral seed)
->
-> testYs :: V.Vector Double -> V.Vector Double -> V.Vector Double
-> testYs xs es =
->   V.zipWith (\x e -> d * x + e) xs es
->
-> testVs :: Int -> Int -> V.Vector (Double, Double)
-> testVs seed nSamples = V.zip xs ys
->   where
->     xs = testXs seed nSamples
->     es = testEpsilons (seed + 1) nSamples
->     ys = testYs xs es
->
-> testData :: Int -> Int -> [(Double,Double)]
-> testData seed nSamples = V.toList $ testVs seed nSamples
-
-We can look at this
-
-    [ghci]
-    import LinReg
-    testXs 2 5
-    testEpsilons 2 5
-
-but a picture paints a thousand words, and given we have taken the
-variance of the added noise to be pretty big, it is really only after
-about 1,000 samples that it starts to look like there is a linear
-relationship.
-
-```{.dia height='800'}
-import LinReg
-import LinRegAux
-
-dia = ((diag red (testData 2 10) # scaleX 0.3 # scaleY 0.3)
-       |||
-       (diag blue (testData 3 100) # scaleX 0.3 # scaleY 0.3))
-      ===
-      ((diag blue (testData 3 1000) # scaleX 0.3 # scaleY 0.3)
-       |||
-       (diag green (testData 6 10000) # scaleX 0.3 # scaleY 0.3))
-````
-
 A Simple Example
 ================
 
-Suppose the prior is $\mu \sim \cal{N}(\mu_0, \tau)$, that is
+Analytically
+------------
+
+Suppose the prior is $\mu \sim \cal{N}(\mu_0, \sigma_0)$, that is
 
 $$
-\pi(\mu) \propto \exp{\bigg( -\frac{(\mu - \mu_0)^2}{2\tau^2}\bigg)}
+\pi(\mu) \propto \exp{\bigg( -\frac{(\mu - \mu_0)^2}{2\sigma_0^2}\bigg)}
 $$
 
-Our data is IID normal, $x_i \sim \cal{N}(\mu, \sigma)$, so the likelihood is
+Our data is IID normal, $x_i \sim \cal{N}(\mu, \sigma)$, where
+$\sigma$ is known, so the likelihood is
 
 $$
 p(x\,|\,\mu, \sigma) \propto \prod_{i=1}^n \exp{\bigg( -\frac{(x_i - \mu)^2}{2\sigma^2}\bigg)}
 $$
+
+The assumption that $\sigma$ is known is unlikely but the point of
+this post is to demonstrate MCMC matching an analytic formula.
 
 This gives a posterior of
 
 $$
 \begin{aligned}
 p(\mu\,|\, \boldsymbol{x}) &\propto \exp{\bigg(
--\frac{(\mu - \mu_0)^2}{2\tau^2}
+-\frac{(\mu - \mu_0)^2}{2\sigma_0^2}
 - \frac{\sum_{i=1}^n(x_i - \mu)^2}{2\sigma^2}\bigg)} \\
-&\propto \exp{\bigg[-\frac{1}{2}\bigg(\frac{\mu^2 \sigma^2 -2\sigma^2\mu\mu_0 - 2\tau^2n\bar{x}\mu + \tau^2 n\mu^2}{\sigma^2\tau^2}\bigg)\bigg]} \\
-&= \exp{\bigg[-\frac{1}{2}\bigg(\frac{ (n\tau^2 + \sigma^2)\mu^2 - 2(\sigma^2\mu_0 - \tau^2n\bar{x})\mu}{\sigma^2\tau^2}\bigg)\bigg]} \\
-&= \exp{\Bigg[-\frac{1}{2}\Bigg(\frac{ \mu^2 - 2\mu\frac{(\sigma^2\mu_0 - \tau^2n\bar{x})}{(n\tau^2 + \sigma^2)}}{\frac{\sigma^2\tau^2}{(n\tau^2 + \sigma^2)}}\Bigg)\Bigg]} \\
-&\propto \exp{\Bigg[-\frac{1}{2}\Bigg(\frac{\big(\mu - \frac{(\sigma^2\mu_0 - \tau^2n\bar{x})}{(n\tau^2 + \sigma^2)}\big)^2}{\frac{\sigma^2\tau^2}{(n\tau^2 + \sigma^2)}}\Bigg)\Bigg]}
+&\propto \exp{\bigg[-\frac{1}{2}\bigg(\frac{\mu^2 \sigma^2 -2\sigma^2\mu\mu_0 - 2\sigma_0^2n\bar{x}\mu + \sigma_0^2 n\mu^2}{\sigma^2\sigma_0^2}\bigg)\bigg]} \\
+&= \exp{\bigg[-\frac{1}{2}\bigg(\frac{ (n\sigma_0^2 + \sigma^2)\mu^2 - 2(\sigma^2\mu_0 - \sigma_0^2n\bar{x})\mu}{\sigma^2\sigma_0^2}\bigg)\bigg]} \\
+&= \exp{\Bigg[-\frac{1}{2}\Bigg(\frac{ \mu^2 - 2\mu\frac{(\sigma^2\mu_0 - \sigma_0^2n\bar{x})}{(n\sigma_0^2 + \sigma^2)}}{\frac{\sigma^2\sigma_0^2}{(n\sigma_0^2 + \sigma^2)}}\Bigg)\Bigg]} \\
+&\propto \exp{\Bigg[-\frac{1}{2}\Bigg(\frac{\big(\mu - \frac{(\sigma^2\mu_0 - \sigma_0^2n\bar{x})}{(n\sigma_0^2 + \sigma^2)}\big)^2}{\frac{\sigma^2\sigma_0^2}{(n\sigma_0^2 + \sigma^2)}}\Bigg)\Bigg]}
 \end{aligned}
 $$
 
 In other words
 
 $$
-\mu\,|\, \boldsymbol{x} \sim \cal{N}\bigg(\frac{\sigma^2\mu_0 + n\tau^2\bar{x}}{n\tau^2 + \sigma^2}, \frac{\sigma^2\tau^2}{n\tau^2 + \sigma^2} \bigg)
+\mu\,|\, \boldsymbol{x} \sim \cal{N}\bigg(\frac{\sigma^2\mu_0 + n\sigma_0^2\bar{x}}{n\sigma_0^2 + \sigma^2}, \frac{\sigma^2\sigma_0^2}{n\sigma_0^2 + \sigma^2} \bigg)
 $$
+
+Writing
+
+$$
+\sigma_n^2 = \frac{\sigma^2\sigma_0^2}{n\sigma_n^2 + \sigma^2}
+$$
+
+we get
+
+$$
+\frac{1}{\sigma_n^2} = \frac{n}{\sigma^2} + \frac{1}{\sigma_0^2}
+$$
+
+Thus the precision (the inverse of the variance) of the posterior is
+the precision of the prior plus the precision of the data scaled by
+the number of observations. This gives a nice illustration of how
+Bayesian statistics improves our beliefs.
+
+Writing
+
+$$
+\mu_n = \frac{\sigma^2\mu_0 + n\sigma_0^2\bar{x}}{n\sigma_0^2 + \sigma^2}
+$$
+
+and
+
+$$
+\lambda = 1 / \sigma^2, \, \lambda_0 = 1 / \sigma_0^2, \, \lambda_n = 1 / \sigma_n^2
+$$
+
+we see that
+
+$$
+\mu_n = \frac{n\bar{x}\lambda + \mu_0\lambda_0}{\lambda_n}
+$$
+
+Thus the mean of the posterior is a weight sum of the mean of the
+prior and the sample mean scaled by preciscion of the prior and the
+precision of the data itself scaled by the number of observations.
+
+Rather arbitrarily let us pick a prior mean of
+
+> mu0 :: Double
+> mu0 = 11.0
+
+and express our uncertainty about it with a largish prior variance
+
+> sigma_0 :: Double
+> sigma_0 = 2.0
+
+And also arbitrarily let us pick the know variance for the samples as
+
+> sigma :: Double
+> sigma = 1.0
+
+```{.dia height='600'}
+import ConjMCMCSimple
+import LinRegAux
+
+dia = diagNormals [(mu0, sigma_0, blue, "Prior")]
+````
+
+We can sample from this in way that looks very similar to
+[STAN](http://mc-stan.org) and
+[JAGS](http://mcmc-jags.sourceforge.net):
+
+> hierarchicalSample :: MonadRandom m => m Double
+> hierarchicalSample = do
+>   mu <- sample (Normal mu0 sigma_0)
+>   x  <- sample (Normal mu sigma)
+>   return x
+
+and we didn't need to write a new language for this.
+
+Again arbitrarily let us take
+
+> nSamples :: Int
+> nSamples = 10
+
+and use
+
+> arbSeed :: Int
+> arbSeed = 2
+
+And then actually generate the samples.
 
 > simpleXs :: [Double]
 > simpleXs =
 >   evalState (replicateM nSamples hierarchicalSample)
->             (pureMT $ fromIntegral seed)
->   where
->     hierarchicalSample = do
->       mu <- sample (Normal mu0 rho)
->       x  <- sample (Normal mu sigma)
->       return x
+>             (pureMT $ fromIntegral arbSeed)
 
-> mu0, rho, sigma, mu1, rho1, simpleNumerator :: Double
-> mu0 = 11.0
-> rho = 2.0
-> sigma = 1.0
-> simpleNumerator = fromIntegral nSamples * rho**2 + sigma**2
-> mu1 = (sigma**2 * mu0 + rho**2 * sum simpleXs) / simpleNumerator
-> rho1 = sigma**2 * rho**2 / simpleNumerator
+Using the formulae we did above we can calculate the posterior
+
+> mu_1, sigma1, simpleNumerator :: Double
+> simpleNumerator = fromIntegral nSamples * sigma_0**2 + sigma**2
+> mu_1 = (sigma**2 * mu0 + sigma_0**2 * sum simpleXs) / simpleNumerator
+> sigma1 = sigma**2 * sigma_0**2 / simpleNumerator
+
+and then compare it against the prior
 
 ```{.dia height='600'}
-import LinReg
+import ConjMCMCSimple
 import LinRegAux
 
-dia = diagNormals [(mu0, rho, blue, "Prior"), (mu1, rho1, red, "Posterior")]
+dia = diagNormals [(mu0, sigma_0, blue, "Prior"), (mu_1, sigma1, red, "Posterior")]
 ````
+
+The red posterior shows we are a lot more certain now we have some evidence.
+
+Via Markov Chain Monte Carlo
+----------------------------
+
+The theory behinde MCMC is described in a [previous
+post](http://idontgetoutmuch.wordpress.com/2013/12/07/haskell-ising-markov-metropolis/). We
+need to generate some proposed steps for the chain. We sample from the
+normal distribution but we could have used e.g. the gamma.
 
 > normalisedProposals :: Int -> Double -> Int -> [Double]
 > normalisedProposals seed sigma nIters =
 >   evalState (replicateM nIters (sample (Normal 0.0 sigma)))
 >   (pureMT $ fromIntegral seed)
->
+
+We also need samples from the uniform distribution
+
 > acceptOrRejects :: Int -> Int -> [Double]
 > acceptOrRejects seed nIters =
 >   evalState (replicateM nIters (sample stdUniform))
 >   (pureMT $ fromIntegral seed)
->
+
+And now we can calculate the (un-normalised) prior, likelihood and posterior
+
 > prior :: Double -> Double
-> prior mu = exp (-(mu - mu0)**2 / (2 * rho**2))
+> prior mu = exp (-(mu - mu0)**2 / (2 * sigma_0**2))
 >
 > likelihood :: Double -> [Double] -> Double
 > likelihood mu xs = exp (-sum (map (\x -> (x - mu)**2 / (2 * sigma**2)) xs))
 >
 > posterior :: Double -> [Double] -> Double
 > posterior mu xs = likelihood mu xs * prior mu
->
+
+The [Metropolis
+algorithm](http://en.wikipedia.org/wiki/Metropolis–Hastings_algorithm)
+tells us that we always jump to a better place but only sometimes jump
+to a worse place. We count the number of acceptances as we go.
+
 > acceptanceProb :: Double -> Double -> [Double] -> Double
 > acceptanceProb mu mu' xs = min 1.0 ((posterior mu' xs) / (posterior mu xs))
->
+
 > oneStep :: (Double, Int) -> (Double, Double) -> (Double, Int)
 > oneStep (mu, nAccs) (proposedJump, acceptOrReject) =
 >   if acceptOrReject < acceptanceProb mu (mu + proposedJump) simpleXs
 >   then (mu + proposedJump, nAccs + 1)
 >   else (mu, nAccs)
 
-> test :: [(Double, Int)]
-> test = drop 200000 $
->        scanl oneStep (10.0, 0) $
->        zip (normalisedProposals 3 0.4 300000) (acceptOrRejects 4 300000)
->
+Now we can actually run our simulation. We set the number of jumps and
+a burn in but do not do any thinning.
+
+> nIters, burnIn :: Int
+> nIters = 300000
+> burnIn = nIters `div` 10
+
+Let us start our chain at
+
+> startMu :: Double
+> startMu = 10.0
+
+and set the variance of the jumps to
+
+> jumpVar :: Double
+> jumpVar = 0.4
+
+> test :: Int -> [(Double, Int)]
+> test seed =
+>   drop burnIn $
+>   scanl oneStep (startMu, 0) $
+>   zip (normalisedProposals seed jumpVar nIters)
+>       (acceptOrRejects seed nIters)
+
+We put the data into a histogram
+
+> numBins :: Int
+> numBins = 400
+
 > hb :: HBuilder Double (Data.Histogram.Generic.Histogram V.Vector BinD Double)
-> hb = forceDouble -<< mkSimple (binD (10.0 - 1.5*rho) 400 (10.0 + 1.5*rho))
+> hb = forceDouble -<< mkSimple (binD lower numBins upper)
+>   where
+>     lower = startMu - 1.5*sigma_0
+>     upper = startMu + 1.5*sigma_0
 >
-> hist :: Histogram V.Vector BinD Double
-> hist = fillBuilder hb (map fst test)
+> hist :: Int -> Histogram V.Vector BinD Double
+> hist seed = fillBuilder hb (map fst $ test seed)
+
+```{.dia width='800'}
+dia = image "diagrams/HistMCMC.png" 1.0 1.0
+````
+
+Not bad but a bit lumpy. Let's try a few runs and see if we can smooth
+things out.
+
+> hists :: [Histogram V.Vector BinD Double]
+> hists = parMap rpar hist [3,4..102]
+
+> emptyHist :: Histogram V.Vector BinD Double
+> emptyHist = fillBuilder hb (replicate numBins 0)
+>
+> smoothHist :: Histogram V.Vector BinD Double
+> smoothHist = foldl' (H.zip (+)) emptyHist hists
+
+```{.dia width='800'}
+dia = image "diagrams/SmoothHistMCMC.png" 1.0 1.0
+````
+
+Quite nice and had my machine running at 750% with +RTS -N8.
+
+Comparison
+----------
+
+Let's create the same histogram but from the posterior created analytically.
 
 > analPosterior :: [Double]
 > analPosterior =
->   evalState (replicateM 100000 (sample (Normal mu1 (sqrt rho1))))
+>   evalState (replicateM (nIters - burnIn) (sample (Normal mu_1 (sqrt sigma1))))
 >   (pureMT $ fromIntegral 5)
 >
 > histAnal :: Histogram V.Vector BinD Double
 > histAnal = fillBuilder hb analPosterior
 
-```{.dia width='1500'}
+And then compare them. Because they overlap so well, we show the MCMC, both and the analytic on separate charts.
+
+```{.dia width='800'}
 dia = image "diagrams/HistMCMC.png" 1.0 1.0
-      |||
+      ===
       image "diagrams/HistMCMCAnal.png" 1.0 1.0
-      |||
+      ===
       image "diagrams/HistAnal.png" 1.0 1.0
 ````
 
-Conjugate Prior
-===============
+PostAmble
+=========
 
-Ultimately we are going to use a Monte Carlo Markov Chain (MCMC)
-method to calculate the posterior distribution. Before we do and so
-that we have something to test against let us first consider a
-conjugate prior. A conjugate prior is a member of a family of
-distributions in which the posterior is a member of the same family.
+Normally with BlogLiteratelyD, we can generate diagrams on the
+fly. However, here we want to run the simulations in parallel so we
+need to actually compile something.
 
-Let us take a prior from the normal-Gamma distribution $NG(\mu,
-\lambda | \mu_0, \kappa_0, \alpha_0, \beta_0)$
-
-$$
-\pi(\theta) \propto \lambda^{1/2} \exp\Bigg[{-\frac{\lambda}{2V}(\beta -\mu_0)^2}\Bigg]\lambda^{a - 1}\exp\Bigg[{-b\lambda}\Bigg]
-$$
-
-
-The likelihood
-
-$$
-f(x | \theta) \propto  \lambda^{1/2} \exp \Bigg[-\frac{\lambda}{2}(\beta - \hat{\beta})^2\sum_{i = 1}^N x_i^2\Bigg] \lambda^{\nu / 2}\exp{\Bigg[-\frac{\lambda\nu}{2s^{-2}}\Bigg]}
-$$
-
-The posterior
-
-$$
-f(\theta | x) \propto \lambda^{a - 1 + \nu / 2 + 1 / 2 + 1 / 2} \exp\Bigg[{-b\lambda}{-\frac{\lambda}{2V}(\beta -\mu_0)^2}{-\frac{\lambda\nu}{2s^{-2}}}{-\frac{\lambda}{2}(\beta - \hat{\beta})^2\sum_{i = 1}^N x_i^2}\Bigg]
-$$
-
-Equating powers of $\lambda$ we get
-
-$$
-a' = a + \frac{\nu}{2} + \frac{1}{2} = a + \frac{N}{2}
-$$
-
-Now let us examine the factors inside the exponential
-
-$$
--b'\lambda - \frac{\lambda}{2V'}(\beta - \mu_0')^2 =
--b\lambda -  \frac{\lambda}{2V}(\beta - \mu_0)^2
--\frac{\lambda\nu}{2s^{-2}} - \frac{\lambda}{2}(\beta - \hat{\beta})^2\sum_{i = 1}^N x_i^2
-$$
-
-Equating terms in $\beta^2$
-
-$$
-\frac{1}{V'} = \frac{1}{V} + \sum_{i = 1}^N x_i^2
-$$
-
-and so
-
-$$
-V' = \bigg(V^{-1} + \sum_{i = 1}^N x_i^2\bigg)^{-1}
-$$
-
-Equating terms in $\beta$
-
-$$
-\frac{\mu_0'}{V'} = \frac{\mu_0}{V} + \hat{\beta}\sum_{i = 1}^N x_i^2
-$$
-
-and so
-
-$$
-\mu_0' = V'\bigg(\mu_0V^{-1} + \hat{\beta}\sum_{i = 1}^N x_i^2\bigg)
-$$
-
-Equating constant terms
-
-$$
-b' + \frac{\mu_0'^2}{2V'} =
-b + \frac{\mu_0^2}{2V} + \frac{\nu}{2s^{-2}} +
-\frac{\hat{\beta}^2\sum_{i = 1}^N x_i^2}{2}
-$$
-
-and so
-
-$$
-b' =
-b + \frac{1}{2}
-\bigg(\frac{\mu_0^2}{V} - \frac{\mu_0'^2}{V'} +
-\frac{\nu}{s^{-2}} +
-\hat{\beta}^2\sum_{i = 1}^N x_i^2\bigg)
-$$
-
-But we know that
-
-$$
-\hat{\beta} = \frac{\sum x_i y_i}{\sum x^2_i}\, \text{and}\, s^2 = \frac{\sum (y_i - \hat{\beta}x_i)^2}{\nu}
-$$
-
-Thus we can rewrite
-
-$$
-\begin{aligned}
-\frac{\nu}{s^{-2}} +
-\hat{\beta}^2\sum_{i = 1}^N x_i^2 &=
-\sum (y_i - \hat{\beta}x_i)^2 + \hat{\beta}^2\sum x_i^2 \\
-&= \sum y_i^2 - 2\hat{\beta}\sum x_i y_i + \hat{\beta}^2\sum x_i^2 + \hat{\beta}^2\sum x_i^2 \\
-&= \sum y_i^2
-\end{aligned}
-$$
-
-giving
-
-$$
-b' =
-b + \frac{1}{2}
-\bigg(\frac{\mu_0^2}{V} - \frac{\mu_0'^2}{V'} +
-\sum y_i^2\bigg)
-$$
-
->
-> nSamples, seed :: Int
-> nSamples = 10
-> seed = 2
-
-> a :: Double
-> a = 1.0
->
-> a' :: Double
-> a' = a + (fromIntegral nSamples) / 2.0
-
-    [ghci]
-    import LinReg
-    a'
-
-> v :: Double
-> v = 1.0
-
-> zs :: V.Vector (Double, Double)
-> zs = testVs seed nSamples
->
-> xs :: V.Vector Double
-> xs = V.map fst zs
-
-> xs2 :: Double
-> xs2 = V.sum $ V.map (**2) xs
-
-> v' :: Double
-> v' = recip (recip v + xs2)
-
-    [ghci]
-    v'
-
-> d :: Double
-> d = 2.0
->
-> betaHat :: Double
-> betaHat = (V.sum $ V.zipWith (*) xs ys) / xs2
->
-> d' :: Double
-> d' = v' * (d * recip v + betaHat * xs2)
-
-    [ghci]
-    d'
-
-> b :: Double
-> b = v / (2.0 * recip v**2)
->
-> ys :: V.Vector Double
-> ys = V.map snd zs
->
-> ys2 :: Double
-> ys2 = V.sum $ V.map (**2) ys
->
-> b' :: Double
-> b' = b + 0.5 * (d**2 / v - d'**2 / v' + ys2)
-
-    [ghci]
-    b'
-
-We can plot the prior and posterior gamma distributions. Even if we
-only sample 10 observations we can see that the posterior gives quite
-a tight estimate. In the example below we take the prior gamma to have
-shape 4.0 and rate 1.0 but this does not seem to have much influence
-of the posterior,
-
-```{.dia height='600'}
-import LinReg
-import LinRegAux
-
-dia = diagGamma 4.0 1.0 a' b'
-````
-
-We can also plot the prior and posterior normal distributions assuming
-that $h = 1.0$. Note that after 10 observations we do not get a very
-good estimate but we get a much better one after 100 observations.
-
-```{.dia height='600'}
-import LinReg
-import LinRegAux
-
-dia = diagNormal d (sqrt v) d' (sqrt v') 1.879657598238415 (sqrt 3.146906057947862e-2)
-````
-
+~~~~ { .shell }
+ghc -O2 ConjMCMCSimple.lhs -main-is ConjMCMCSimple -threaded -fforce-recomp
+~~~~
 
 > displayHeader :: FilePath -> Diagram B R2 -> IO ()
 > displayHeader fn =
@@ -417,25 +364,25 @@ dia = diagNormal d (sqrt v) d' (sqrt v') 1.879657598238415 (sqrt 3.1469060579478
 >              , DiagramLoopOpts False Nothing 0
 >              )
 
-A Gibbs Sampler
-===============
-
 > main :: IO ()
 > main = do
->   displayHeader "Normal.png" (diagNormals [ (10.0, 2.0, blue, "Prior")
->                                           , (11.0, 1.0, red, "Posterior")])
 >   displayHeader "diagrams/HistMCMC.png"
 >     (barDiag MCMC
->      (zip (map fst $ asList hist) (map snd $ asList hist))
+>      (zip (map fst $ asList (hist 2)) (map snd $ asList (hist 2)))
 >      (zip (map fst $ asList histAnal) (map snd $ asList histAnal)))
 >
 >   displayHeader "diagrams/HistMCMCAnal.png"
 >     (barDiag MCMCAnal
->      (zip (map fst $ asList hist) (map snd $ asList hist))
+>      (zip (map fst $ asList (hist 2)) (map snd $ asList (hist 2)))
 >      (zip (map fst $ asList histAnal) (map snd $ asList histAnal)))
 >
 >   displayHeader "diagrams/HistAnal.png"
 >     (barDiag Anal
->      (zip (map fst $ asList hist) (map snd $ asList hist))
+>      (zip (map fst $ asList (hist 2)) (map snd $ asList (hist 2)))
+>      (zip (map fst $ asList histAnal) (map snd $ asList histAnal)))
+>
+>   displayHeader "diagrams/SmoothHistMCMC.png"
+>     (barDiag MCMC
+>      (zip (map fst $ asList smoothHist) (map snd $ asList smoothHist))
 >      (zip (map fst $ asList histAnal) (map snd $ asList histAnal)))
 
