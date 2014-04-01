@@ -13,6 +13,7 @@ module LinRegAux (
   , diag
   , barDiag
   , MCMCAnal (..)
+  , wikiDiag
   ) where
 
 import System.IO.Unsafe
@@ -182,6 +183,8 @@ barChart pt bvs bvs' = toRenderable layout
   where
     layout =
       layout_title .~ title pt
+      $ layout_x_axis . laxis_generate .~ autoIndexAxis (map (printf "%3.1f" . fst) bvs)
+
       $ layout_y_axis . laxis_title .~ "Frequency"
       $ layout_plots .~ (map plotBars $ plots pt)
       $ def
@@ -214,3 +217,30 @@ barDiag :: MCMCAnal ->
            QDiagram Cairo R2 Any
 barDiag pt bvs bvs' = fst $ runBackend denv (render (barChart pt bvs bvs') (500, 500))
 
+wikiChart :: Bool -> Graphics.Rendering.Chart.Renderable ()
+wikiChart borders = toRenderable layout
+ where
+  layout =
+        layout_title .~ "Sample Bars" ++ btitle
+      $ layout_title_style . font_size .~ 10
+      $ layout_x_axis . laxis_generate .~ autoIndexAxis alabels
+      $ layout_y_axis . laxis_override .~ axisGridHide
+      $ layout_left_axis_visibility . axis_show_ticks .~ False
+      $ layout_plots .~ [ plotBars bars2 ]
+      $ def :: Layout PlotIndex Double
+
+  bars2 = plot_bars_titles .~ ["Cash","Equity"]
+      $ plot_bars_values .~ addIndexes [[20,45],[45,30],[30,20],[70,25]]
+      $ plot_bars_style .~ BarsClustered
+      $ plot_bars_spacing .~ BarsFixGap 30 5
+      $ plot_bars_item_styles .~ map mkstyle (cycle defaultColorSeq)
+      $ def
+
+  alabels = [ "Jun", "Jul", "Aug", "Sep", "Oct" ]
+
+  btitle = if borders then "" else " (no borders)"
+  bstyle = if borders then Just (solidLine 1.0 $ opaque black) else Nothing
+  mkstyle c = (solidFillStyle c, bstyle)
+
+wikiDiag :: Bool -> QDiagram Cairo R2 Any
+wikiDiag borders = fst $ runBackend denv (render (wikiChart borders) (500, 500))
