@@ -1,20 +1,7 @@
-set.seed(1729)
-y <- rnorm(n = 20, mean = 10, sd = 5)
-mean(y)
-sd(y)
-
-write.table(y,
-            file = 'example1.data',
-            row.names = FALSE,
-            col.names = FALSE)
-
-jags <- jags.model('example1.bug',
-                   data = "example1.data",
-                   n.chains = 4,
-                   n.adapt = 100)
-
+## Import the library that allows R to inter-work with jags.
 library(rjags)
 
+## Read the simulated data into a data frame.
 fn <- read.table("example1.data", header=FALSE)
 
 jags <- jags.model('example1.bug',
@@ -22,17 +9,10 @@ jags <- jags.model('example1.bug',
                    n.chains = 4,
                    n.adapt = 100)
 
-# The model specification
-model_string <- "model{
-  for(i in 1:length(y)) {
-    y[i] ~ dnorm(mu, tau)
-  }
-  mu ~ dnorm(0, 0.0001)
-  sigma ~ dlnorm(0, 0.0625)
-  tau <- 1 / pow(sigma, 2)
-}"
+## Burnin for 10000 samples
+update(jags, 10000);
 
-# Running the model
-model <- jags.model(textConnection(model_string), data = list(y = y), n.chains = 3, n.adapt= 10000)
-update(model, 10000); # Burnin for 10000 samples
-mcmc_samples <- coda.samples(model, variable.names=c("mu", "sigma"), n.iter=20000)
+mcmc_samples <- coda.samples(jags, variable.names=c("mu", "sigma"), n.iter=20000)
+plot(mcmc_samples)
+
+

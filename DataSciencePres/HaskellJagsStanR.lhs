@@ -103,6 +103,10 @@ $$
 
 which we recognise as a gamma distribution with a shape of $n/2$ and a scale of $\frac{1}{2}\sum_{i=1}^n{(x_i - \mu)^2}$
 
+> nrep, nb :: Int
+> nb   = 5000
+> nrep = 105000
+
 > xs :: [Double]
 > xs = [
 >     11.0765808082301
@@ -139,57 +143,74 @@ than creating your own strict record and using *foldl'*.
 >             (L.premap (\x -> x * x) L.sum) <*>
 >             L.sum <*>
 >             L.genericLength
->
+
+$$
+\bar{x} = \frac{1}{n}\sum_{i=1}^n x_i
+$$
+
 > xBar :: Double
 > xBar = xSum / n
 
+$$
+M_2 = \frac{1}{n}\sum_{i=1}^n x^2_i
+$$
+
+> m2Xs = x2Sum / n
+
+$$
+s^2 = \frac{1}{n-1}\sum_{i=1}^n (x_i - \bar{x})^2
+$$
+
+> varX = n * (m2Xs - xBar * xBar) / (n - 1)
+
+rate $\beta$ and scale $\theta$
+
+> beta = 0.5 * n * varX
+> initTau = evalState (sample (Gamma (n / 2) beta)) (pureMT 1)
+
 > gibbsSampler :: MonadRandom m => Double -> m (Maybe ((Double, Double), Double))
 > gibbsSampler oldTau = do
->   newMu <- sample (Normal xBar (recip (n * oldTau)))
+>   newMu <- sample (Normal xBar (recip (sqrt (n * oldTau))))
 >   let shape = 0.5 * n
 >       scale = 0.5 * (x2Sum + n * newMu^2 - 2 * n * newMu * xBar)
->   newTau <- sample (Gamma shape scale)
+>   newTau <- sample (Gamma shape (recip scale))
 >   return $ Just ((newMu, newTau), newTau)
 
 
 > gibbsSamples :: [(Double, Double)]
-> gibbsSamples = evalState (ML.unfoldrM gibbsSampler 1.0) (pureMT 1)
+> gibbsSamples = evalState (ML.unfoldrM gibbsSampler initTau) (pureMT 1)
 
-> g4Sum, g3Sum, g2Sum, gSum, m :: Double
-> (g4Sum, g3Sum, g2Sum, gSum, m) = L.fold stats (take 10000 $ map fst gibbsSamples)
->   where
->     stats = (,,,,) <$>
->             (L.premap (\x -> x * x * x * x) L.sum) <*>
->             (L.premap (\x -> x * x * x) L.sum) <*>
->             (L.premap (\x -> x * x) L.sum) <*>
->             L.sum <*>
->             L.genericLength
+Calculate using [incremental]
+(http://en.wikipedia.org/wiki/Algorithms_for_calculating_variance)
 
-> moments xs = foldl' f (0.0, 0.0, 0.0, 0.0, 0.0) xs
+> data Moments = Moments { mN :: !Double
+>                        , m1 :: !Double
+>                        , m2 :: !Double
+>                        , m3 :: !Double
+>                        , m4 :: !Double
+>                        }
+>   deriving Show
+
+> moments xs = foldl' f (Moments 0.0 0.0 0.0 0.0 0.0) xs
 >   where
->     f (m4, m3, m2, m1, n) x = (m4', m3', m2', m1', n')
+>     f :: Moments -> Double -> Moments
+>     f m x = Moments n' m1' m2' m3' m4'
 >       where
+>         n = mN m
 >         n'  = n + 1
->         delta = x - m1
+>         delta = x - (m1 m)
 >         delta_n = delta / n'
 >         delta_n2 = delta_n * delta_n
 >         term1 = delta * delta_n * n
->         m1' = m1 + delta_n
->         m4' = m4 + term1 * delta_n2 * (n'*n' - 3*n' + 3) + 6 * delta_n2 * m2 - 4 * delta_n * m3
->         m3' = m3 + term1 * delta_n * (n' - 2) - 3 * delta_n * m2
->         m2' = m2 + term1
+>         m1' = m1 m + delta_n
+>         m4' = m4 m +
+>               term1 * delta_n2 * (n'*n' - 3*n' + 3) +
+>               6 * delta_n2 * m2 m - 4 * delta_n * m3 m
+>         m3' = m3 m + term1 * delta_n * (n' - 2) - 3 * delta_n * m2 m
+>         m2' = m2 m + term1
 
 > norms :: [Double]
 > norms = evalState (replicateM 10000 (sample (Normal 0.0 1.0))) (pureMT 1)
-
-
-> nSumSumSqr :: Fractional a => L.Fold a (a, a, a)
-> nSumSumSqr = (,,) <$>
->              L.genericLength <*>
->              L.sum <*>
->              (L.premap (\x -> x * x) L.sum)
->
-> 
 
 > numBins :: Int
 > numBins = 400
@@ -197,17 +218,24 @@ than creating your own strict record and using *foldl'*.
 > hb :: HBuilder Double (Data.Histogram.Generic.Histogram V.Vector BinD Double)
 > hb = forceDouble -<< mkSimple (binD lower numBins upper)
 >   where
->     lower = xBar - 1.0*0.001
->     upper = xBar + 1.0*0.001
+>     lower = xBar - 3.0*1.0
+>     upper = xBar + 3.0*1.0
 >
 > hist :: Histogram V.Vector BinD Double
-> hist = fillBuilder hb (take 10000000 $ map fst gibbsSamples)
+> hist = fillBuilder hb (take (nrep - nb) $ drop nb $ map fst gibbsSamples)
 
 ```{.dia width='800'}
 dia = image "diagrams/DataScienceHaskPost.png" 1.0 1.0
 ````
 
+[JAGS](http://mcmc-jags.sourceforge.net) is a mature domain specific
+language for building Bayesian statistical models using Gibbs sampling.
+
+
 ~~~~ {.r include="example1.bug"}
+~~~~
+
+~~~~{.r include="HaskellJagsStanR.R"}
 ~~~~
 
 > displayHeader :: FilePath -> Diagram B R2 -> IO ()
@@ -217,7 +245,15 @@ dia = image "diagrams/DataScienceHaskPost.png" 1.0 1.0
 >              )
 
 > main :: IO ()
-> main =
+> main = do
+>   let m = moments (take (nrep - nb) $ drop nb $ map fst gibbsSamples)
+>   putStrLn $ show m
+>   putStrLn $ show $ (sqrt (mN m)) * (m3 m) / (m2 m)**1.5
+>   putStrLn $ show $ (mN m) * (m4 m) / (m2 m)**2
+>   let mNorm = moments norms
+>   putStrLn $ show mNorm
+>   putStrLn $ show $ (sqrt (mN mNorm)) * (m3 mNorm) / (m2 mNorm)**1.5
+>   putStrLn $ show $ (mN mNorm) * (m4 mNorm) / (m2 mNorm)**2
 >   displayHeader "diagrams/DataScienceHaskPost.png"
 >     (barDiag
 >      (zip (map fst $ asList hist) (map snd $ asList hist)))
