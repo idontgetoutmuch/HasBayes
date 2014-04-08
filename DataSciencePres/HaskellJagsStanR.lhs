@@ -30,7 +30,11 @@ Preamble
 
 > {-# LANGUAGE NoMonomorphismRestriction     #-}
 
-> module Gibbs ( main ) where
+> module Gibbs (
+>     main
+>   , m
+>   , Moments(..)
+>   ) where
 >
 > import qualified Data.Vector.Unboxed as V
 > import qualified Control.Monad.Loops as ML
@@ -83,8 +87,14 @@ Data generated from ${\cal{N}}(10.0, 5.0)$.
 >   ]
 
 
-A Bit of Theory: Normal Distribution with Unknown Mean and Variance
-===================================================================
+A Bit of Theory
+===============
+
+Gibbs Sampling
+--------------
+
+Normal Distribution with Unknown Mean and Variance
+--------------------------------------------------
 
 It is fairly standard to use an improper prior
 
@@ -112,7 +122,20 @@ $$
 p(\mu, \tau \,|\, \boldsymbol{x}) \propto \tau^{n/2 - 1}\exp{\bigg( -\frac{\tau}{2}\sum_{i=1}^n{(x_i - \mu)^2}\bigg)}
 $$
 
-The conditional posterior for $\mu$ is
+We can re-write the sum in terms of the sample mean $\bar{x} =
+\frac{1}{n}\sum_{i=1}^n x_i$ and variance $s^2 =
+\frac{1}{n-1}\sum_{i=1}^n (x_i - \bar{x})^2$ using
+
+$$
+\begin{aligned}
+\sum_{i=1}^n (x_i - \mu)^2 &= \sum_{i=1}^n (x_i - \bar{x} + \bar{x} - \mu)^2 \\
+&= \sum_{i=1}^n (x_i - \bar{x})^2 - 2\sum_{i=1}^n (x_i - \bar{x})(\bar{x} - \mu) + \sum_{i=1}^n (\bar{x} - \mu)^2 \\
+&= \sum_{i=1}^n (x_i - \bar{x})^2 - 2(\bar{x} - \mu)\sum_{i=1}^n (x_i - \bar{x}) + \sum_{i=1}^n (\bar{x} - \mu)^2 \\
+&= (n - 1)s^2 + n(\bar{x} - \mu)^2
+\end{aligned}
+$$
+
+Thus the conditional posterior for $\mu$ is
 
 $$
 \begin{aligned}
@@ -140,23 +163,10 @@ $\mu$ analytically. Writing $z = \frac{\tau}{2}\sum_{i=1}^n{(x_i -
 
 $$
 \begin{aligned}
-p(\mu | \boldsymbol{x}) &= \int_0^\infty p(\mu, \tau | \boldsymbol{x}) \textrm{d}\tau \\
+p(\mu \,|\, \boldsymbol{x}) &= \int_0^\infty p(\mu, \tau \,|\, \boldsymbol{x}) \textrm{d}\tau \\
 &\propto \int_0^\infty \tau^{n/2 - 1}\exp{\bigg( -\frac{\tau}{2}\sum_{i=1}^n{(x_i - \mu)^2}\bigg)} \textrm{d}\tau \\
 &\propto \bigg( \sum_{i=1}^n{(x_i - \mu)^2} \bigg)^{-n/2} \int_0^\infty z^{n/2 - 1}\exp{-z}\textrm{d}\tau \\
 &\propto \bigg( \sum_{i=1}^n{(x_i - \mu)^2} \bigg)^{-n/2} \\
-\end{aligned}
-$$
-
-We can re-write the sum in terms of the sample mean $\bar{x} =
-\frac{1}{n}\sum_{i=1}^n x_i$ and variance $s^2 =
-\frac{1}{n-1}\sum_{i=1}^n (x_i - \bar{x})^2$ using
-
-$$
-\begin{aligned}
-\sum_{i=1}^n (x_i - \mu)^2 &= \sum_{i=1}^n (x_i - \bar{x} + \bar{x} - \mu)^2 \\
-&= \sum_{i=1}^n (x_i - \bar{x})^2 - 2\sum_{i=1}^n (x_i - \bar{x})(\bar{x} - \mu) + \sum_{i=1}^n (\bar{x} - \mu)^2 \\
-&= \sum_{i=1}^n (x_i - \bar{x})^2 - 2(\bar{x} - \mu)\sum_{i=1}^n (x_i - \bar{x}) + \sum_{i=1}^n (\bar{x} - \mu)^2 \\
-&= (n - 1)s^2 + n(\bar{x} - \mu)^2
 \end{aligned}
 $$
 
@@ -164,7 +174,7 @@ Finally we can calculate
 
 $$
 \begin{aligned}
-p(\mu | \boldsymbol{x}) &\propto \bigg( (n - 1)s^2 + n(\bar{x} - \mu)^2 \bigg)^{-n/2} \\
+p(\mu \,|\, \boldsymbol{x}) &\propto \bigg( (n - 1)s^2 + n(\bar{x} - \mu)^2 \bigg)^{-n/2} \\
 &\propto \bigg( 1 + \frac{n(\mu - \bar{x})^2}{(n - 1)s^2} \bigg)^{-n/2} \\
 \end{aligned}
 $$
@@ -175,7 +185,7 @@ This is the
 Alternatively the marginal posterior of $\mu$ is
 
 $$
-\frac{\mu - \bar{x}}{s/\sqrt{n}}\bigg| x \sim t_{n-1}
+\frac{\mu - \bar{x}}{s/\sqrt{n}}\bigg|\, x \sim t_{n-1}
 $$
 
 where $t_{n-1}$ is the standard t distribution with $n - 1$ degrees of freedom.
@@ -215,16 +225,19 @@ $$
 we can then calculate the sample mean and variance using the sums we
 have just calculated.
 
-> xBar :: Double
+> xBar, varX :: Double
 > xBar = xSum / n
-
-> varX = n * (m2Xs - xBar * xBar) / (n - 1
+> varX = n * (m2Xs - xBar * xBar) / (n - 1)
 >   where m2Xs = x2Sum / n
 
-rate $\beta$ and scale $\theta$
+In random-fu, the Gamma distribution is specified by the rate paratmeter, $\beta$.
 
+> beta, initTau :: Double
 > beta = 0.5 * n * varX
 > initTau = evalState (sample (Gamma (n / 2) beta)) (pureMT 1)
+
+Our sampler takes an old value of $\tau$ and creates new values of
+$\mu$ and $\tau$.
 
 > gibbsSampler :: MonadRandom m => Double -> m (Maybe ((Double, Double), Double))
 > gibbsSampler oldTau = do
@@ -234,11 +247,14 @@ rate $\beta$ and scale $\theta$
 >   newTau <- sample (Gamma shape (recip scale))
 >   return $ Just ((newMu, newTau), newTau)
 
+From which we can create an infinite stream of samples.
 
 > gibbsSamples :: [(Double, Double)]
 > gibbsSamples = evalState (ML.unfoldrM gibbsSampler initTau) (pureMT 1)
 
-Calculate using [incremental](http://en.wikipedia.org/wiki/Algorithms_for_calculating_variance)
+As our chains might be very long, we calculate the mean, variance,
+skewness and kurtosis using an [incremental
+method](http://en.wikipedia.org/wiki/Algorithms_for_calculating_variance).
 
 > data Moments = Moments { mN :: !Double
 >                        , m1 :: !Double
@@ -248,6 +264,7 @@ Calculate using [incremental](http://en.wikipedia.org/wiki/Algorithms_for_calcul
 >                        }
 >   deriving Show
 
+> moments :: [Double] -> Moments
 > moments xs = foldl' f (Moments 0.0 0.0 0.0 0.0 0.0) xs
 >   where
 >     f :: Moments -> Double -> Moments
@@ -266,21 +283,40 @@ Calculate using [incremental](http://en.wikipedia.org/wiki/Algorithms_for_calcul
 >         m3' = m3 m + term1 * delta_n * (n' - 2) - 3 * delta_n * m2 m
 >         m2' = m2 m + term1
 
+In order to examine the posterior, we create a histogram.
+
 > numBins :: Int
 > numBins = 400
 
 > hb :: HBuilder Double (Data.Histogram.Generic.Histogram V.Vector BinD Double)
 > hb = forceDouble -<< mkSimple (binD lower numBins upper)
 >   where
->     lower = xBar - 3.0*1.0
->     upper = xBar + 3.0*1.0
->
+>     lower = xBar - 2.0 * sqrt varX
+>     upper = xBar + 2.0 * sqrt varX
+
+And fill it with the specified number of samples preceeded by a burn-in.
+
 > hist :: Histogram V.Vector BinD Double
 > hist = fillBuilder hb (take (nrep - nb) $ drop nb $ map fst gibbsSamples)
+
+Now we can plot this.
 
 ```{.dia width='800'}
 dia = image "diagrams/DataScienceHaskPost.png" 1.0 1.0
 ````
+
+And calculate the skewness and kurtosis.
+
+> m :: Moments
+> m = moments (take (nrep - nb) $ drop nb $ map fst gibbsSamples)
+
+    [ghci]
+    import Gibbs
+    putStrLn $ show $ (sqrt (mN m)) * (m3 m) / (m2 m)**1.5
+    putStrLn $ show $ (mN m) * (m4 m) / (m2 m)**2
+
+We expect a skewness of 0 and a kurtosis of $3 + 6 / \nu - 4 = 3.4$
+for $\nu = 19$. Not too bad.
 
 The Model in JAGS
 =================
@@ -289,12 +325,17 @@ The Model in JAGS
 domain specific language for building Bayesian statistical models
 using Gibbs sampling.
 
+Here is our model as expressed in JAGS. Somewhat terse.
 
 ~~~~ {.r include="example1.bug"}
 ~~~~
 
+To run it and examine its results, we wrap it up in some R
+
 ~~~~{.r include="HaskellJagsStanR.R"}
 ~~~~
+
+And now we can look at the posterior for $\mu$.
 
 ```{.dia width='800'}
 dia = image "diagrams/jags.png" 1.0 1.0
@@ -310,8 +351,6 @@ dia = image "diagrams/jags.png" 1.0 1.0
 > main = do
 >   let m = moments (take (nrep - nb) $ drop nb $ map fst gibbsSamples)
 >   putStrLn $ show m
->   putStrLn $ show $ (sqrt (mN m)) * (m3 m) / (m2 m)**1.5
->   putStrLn $ show $ (mN m) * (m4 m) / (m2 m)**2
 >   displayHeader "diagrams/DataScienceHaskPost.png"
 >     (barDiag
 >      (zip (map fst $ asList hist) (map snd $ asList hist)))
