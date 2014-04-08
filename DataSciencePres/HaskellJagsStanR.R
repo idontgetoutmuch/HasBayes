@@ -13,6 +13,10 @@ jags <- jags.model('example1.bug',
 update(jags, 10000);
 
 mcmc_samples <- coda.samples(jags, variable.names=c("mu", "sigma"), n.iter=20000)
+
+png(file="diagrams/jags.png",width=400,height=350)
 plot(mcmc_samples)
+dev.off()
+
 
 

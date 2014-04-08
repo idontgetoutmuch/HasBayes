@@ -16,7 +16,7 @@ distribution with unknown mean and variance. Although one can do Gibbs
 sampling directly in R, it is more common to use a specialised
 language such as JAGS or STAN to do the actual sampling and do
 pre-processing and post-processing in R. This blog post presents
-implementations in native R, JAGS and STAN.
+implementations in native R, JAGS and STAN as well as Haskell.
 
 Preamble
 --------
@@ -30,7 +30,7 @@ Preamble
 
 > {-# LANGUAGE NoMonomorphismRestriction     #-}
 
-> module Gibbs where
+> module Gibbs ( main ) where
 >
 > import qualified Data.Vector.Unboxed as V
 > import qualified Control.Monad.Loops as ML
@@ -107,6 +107,8 @@ which we recognise as a gamma distribution with a shape of $n/2$ and a scale of 
 > nb   = 5000
 > nrep = 105000
 
+First of all let's generate some data from ${\cal{N}}(10.0, 5.0)$.
+
 > xs :: [Double]
 > xs = [
 >     11.0765808082301
@@ -131,10 +133,14 @@ which we recognise as a gamma distribution with a shape of $n/2$ and a scale of 
 >   , 8.43143879537592
 >   ]
 
-Calculate the length, the sum and the sum of squares traversing the
-list only once using the
-[foldl](http://hackage.haskell.org/package/foldl) package. Much better
-than creating your own strict record and using *foldl'*.
+Following up on a
+[comment](http://idontgetoutmuch.wordpress.com/2014/04/02/students-t-and-space-leaks/#comments)
+from a previous blog post, let us try using the
+[foldl](http://hackage.haskell.org/package/foldl) package to calculate
+the length, the sum and the sum of squares traversing the list only
+once. An improvement on creating your own strict record and using
+*foldl'* but maybe it is not suitable for some methods
+e.g. calculating the skewness and kurtosis incrementally, see below.
 
 > x2Sum, xSum, n :: Double
 > (x2Sum, xSum, n) = L.fold stats xs
@@ -228,8 +234,12 @@ Calculate using [incremental]
 dia = image "diagrams/DataScienceHaskPost.png" 1.0 1.0
 ````
 
-[JAGS](http://mcmc-jags.sourceforge.net) is a mature domain specific
-language for building Bayesian statistical models using Gibbs sampling.
+The Model in JAGS
+=================
+
+[JAGS](http://mcmc-jags.sourceforge.net) is a mature, declarative,
+domain specific language for building Bayesian statistical models
+using Gibbs sampling.
 
 
 ~~~~ {.r include="example1.bug"}
@@ -237,6 +247,10 @@ language for building Bayesian statistical models using Gibbs sampling.
 
 ~~~~{.r include="HaskellJagsStanR.R"}
 ~~~~
+
+```{.dia width='800'}
+dia = image "diagrams/jags.png" 1.0 1.0
+````
 
 > displayHeader :: FilePath -> Diagram B R2 -> IO ()
 > displayHeader fn =
@@ -257,3 +271,8 @@ language for building Bayesian statistical models using Gibbs sampling.
 >   displayHeader "diagrams/DataScienceHaskPost.png"
 >     (barDiag
 >      (zip (map fst $ asList hist) (map snd $ asList hist)))
+
+Resources
+=========
+
+[STAN](http://stats.stackexchange.com/questions/37611/parameters-without-defined-priors-in-stan)
