@@ -38,12 +38,10 @@ Preamble
 > import Data.Random
 > import Control.Monad.State
 > import Data.Histogram ( asList )
-> import qualified Data.Histogram as H
 > import Data.Histogram.Fill
 > import Data.Histogram.Generic ( Histogram )
 > import Data.List
 > import qualified Control.Foldl as L
-> import Control.Parallel.Strategies
 >
 > import Diagrams.Backend.Cairo.CmdLine
 >
@@ -52,62 +50,13 @@ Preamble
 > import Diagrams.Backend.CmdLine
 > import Diagrams.Prelude hiding ( sample, render )
 
-Normal Distribution with Unknown Mean and Variance
-==================================================
-
-It is fairly standard to use an improper prior
-
-$$
-\begin{aligned}
-\pi(\mu, \tau) \propto \frac{1}{\tau} & & -\infty < \mu < \infty\, \textrm{and}\, 0 < \tau < \infty
-\end{aligned}
-$$
-
-The likelihood is
-
-$$
-p(x\,|\,\mu, \sigma) = \prod_{i=1}^n \bigg(\frac{1}{\sigma\sqrt{2\pi}}\bigg)\exp{\bigg( -\frac{(x_i - \mu)^2}{2\sigma^2}\bigg)}
-$$
-
-re-writing in terms of precision
-
-$$
-p(x\,|\,\mu, \tau) \propto \prod_{i=1}^n \sqrt{\tau}\exp{\bigg( -\frac{\tau}{2}{(x_i - \mu)^2}\bigg)} = \tau^{n/2}\exp{\bigg( -\frac{\tau}{2}\sum_{i=1}^n{(x_i - \mu)^2}\bigg)}
-$$
-
-Thus the posterior is
-
-$$
-p(\mu, \tau \,|\, x) \propto \tau^{n/2 - 1}\exp{\bigg( -\frac{\tau}{2}\sum_{i=1}^n{(x_i - \mu)^2}\bigg)}
-$$
-
-The marginal posterior for $\mu$ is
-
-$$
-\begin{aligned}
-p(\mu \,|\, , \tau, x) &\propto \exp{\bigg( -\frac{\tau}{2}\bigg(\nu s^2 + \sum_{i=1}^n{(\mu - \bar{x})^2}\bigg)\bigg)} \\
-&\propto \exp{\bigg( -\frac{n\tau}{2}{(\mu - \bar{x})^2}\bigg)} \\
-\end{aligned}
-$$
-
-which we recognise as a normal distribution with mean of $\bar{x}$ and
-a variance of $(n\tau)^{-1}$.
-
-The marginal posterior for $\tau$ is
-
-$$
-\begin{aligned}
-p(\tau \,|\, , \mu, x) &\propto \tau^{n/2 -1}\exp\bigg(-\tau\frac{1}{2}\sum_{i=1}^n{(x_i - \mu)^2}\bigg)
-\end{aligned}
-$$
-
-which we recognise as a gamma distribution with a shape of $n/2$ and a scale of $\frac{1}{2}\sum_{i=1}^n{(x_i - \mu)^2}$
+The length of our chain and the burn-in.
 
 > nrep, nb :: Int
 > nb   = 5000
 > nrep = 105000
 
-First of all let's generate some data from ${\cal{N}}(10.0, 5.0)$.
+Data generated from ${\cal{N}}(10.0, 5.0)$.
 
 > xs :: [Double]
 > xs = [
@@ -133,6 +82,107 @@ First of all let's generate some data from ${\cal{N}}(10.0, 5.0)$.
 >   , 8.43143879537592
 >   ]
 
+
+A Bit of Theory: Normal Distribution with Unknown Mean and Variance
+===================================================================
+
+It is fairly standard to use an improper prior
+
+$$
+\begin{aligned}
+\pi(\mu, \tau) \propto \frac{1}{\tau} & & -\infty < \mu < \infty\, \textrm{and}\, 0 < \tau < \infty
+\end{aligned}
+$$
+
+The likelihood is
+
+$$
+p(\boldsymbol{x}\,|\,\mu, \sigma) = \prod_{i=1}^n \bigg(\frac{1}{\sigma\sqrt{2\pi}}\bigg)\exp{\bigg( -\frac{(x_i - \mu)^2}{2\sigma^2}\bigg)}
+$$
+
+re-writing in terms of precision
+
+$$
+p(\boldsymbol{x}\,|\,\mu, \tau) \propto \prod_{i=1}^n \sqrt{\tau}\exp{\bigg( -\frac{\tau}{2}{(x_i - \mu)^2}\bigg)} = \tau^{n/2}\exp{\bigg( -\frac{\tau}{2}\sum_{i=1}^n{(x_i - \mu)^2}\bigg)}
+$$
+
+Thus the posterior is
+
+$$
+p(\mu, \tau \,|\, \boldsymbol{x}) \propto \tau^{n/2 - 1}\exp{\bigg( -\frac{\tau}{2}\sum_{i=1}^n{(x_i - \mu)^2}\bigg)}
+$$
+
+The conditional posterior for $\mu$ is
+
+$$
+\begin{aligned}
+p(\mu \,|\, \tau, \boldsymbol{x}) &\propto \exp{\bigg( -\frac{\tau}{2}\bigg(\nu s^2 + \sum_{i=1}^n{(\mu - \bar{x})^2}\bigg)\bigg)} \\
+&\propto \exp{\bigg( -\frac{n\tau}{2}{(\mu - \bar{x})^2}\bigg)} \\
+\end{aligned}
+$$
+
+which we recognise as a normal distribution with mean of $\bar{x}$ and
+a variance of $(n\tau)^{-1}$.
+
+The conditional posterior for $\tau$ is
+
+$$
+\begin{aligned}
+p(\tau \,|\, , \mu, \boldsymbol{x}) &\propto \tau^{n/2 -1}\exp\bigg(-\tau\frac{1}{2}\sum_{i=1}^n{(x_i - \mu)^2}\bigg)
+\end{aligned}
+$$
+
+which we recognise as a gamma distribution with a shape of $n/2$ and a scale of $\frac{1}{2}\sum_{i=1}^n{(x_i - \mu)^2}$
+
+In this particular case, we can calculate the marginal posterior of
+$\mu$ analytically. Writing $z = \frac{\tau}{2}\sum_{i=1}^n{(x_i -
+\mu)^2}$ we have
+
+$$
+\begin{aligned}
+p(\mu | \boldsymbol{x}) &= \int_0^\infty p(\mu, \tau | \boldsymbol{x}) \textrm{d}\tau \\
+&\propto \int_0^\infty \tau^{n/2 - 1}\exp{\bigg( -\frac{\tau}{2}\sum_{i=1}^n{(x_i - \mu)^2}\bigg)} \textrm{d}\tau \\
+&\propto \bigg( \sum_{i=1}^n{(x_i - \mu)^2} \bigg)^{-n/2} \int_0^\infty z^{n/2 - 1}\exp{-z}\textrm{d}\tau \\
+&\propto \bigg( \sum_{i=1}^n{(x_i - \mu)^2} \bigg)^{-n/2} \\
+\end{aligned}
+$$
+
+We can re-write the sum in terms of the sample mean $\bar{x} =
+\frac{1}{n}\sum_{i=1}^n x_i$ and variance $s^2 =
+\frac{1}{n-1}\sum_{i=1}^n (x_i - \bar{x})^2$ using
+
+$$
+\begin{aligned}
+\sum_{i=1}^n (x_i - \mu)^2 &= \sum_{i=1}^n (x_i - \bar{x} + \bar{x} - \mu)^2 \\
+&= \sum_{i=1}^n (x_i - \bar{x})^2 - 2\sum_{i=1}^n (x_i - \bar{x})(\bar{x} - \mu) + \sum_{i=1}^n (\bar{x} - \mu)^2 \\
+&= \sum_{i=1}^n (x_i - \bar{x})^2 - 2(\bar{x} - \mu)\sum_{i=1}^n (x_i - \bar{x}) + \sum_{i=1}^n (\bar{x} - \mu)^2 \\
+&= (n - 1)s^2 + n(\bar{x} - \mu)^2
+\end{aligned}
+$$
+
+Finally we can calculate
+
+$$
+\begin{aligned}
+p(\mu | \boldsymbol{x}) &\propto \bigg( (n - 1)s^2 + n(\bar{x} - \mu)^2 \bigg)^{-n/2} \\
+&\propto \bigg( 1 + \frac{n(\mu - \bar{x})^2}{(n - 1)s^2} \bigg)^{-n/2} \\
+\end{aligned}
+$$
+
+This is the
+[non-standardized Student's t-distribution](http://en.wikipedia.org/wiki/Student%27s_t-distribution#Non-standardized_Student.%27s_t-distribution) $t_{n-1}(\bar{x}, s^2/n)$.
+
+Alternatively the marginal posterior of $\mu$ is
+
+$$
+\frac{\mu - \bar{x}}{s/\sqrt{n}}\bigg| x \sim t_{n-1}
+$$
+
+where $t_{n-1}$ is the standard t distribution with $n - 1$ degrees of freedom.
+
+The Model in Haskell
+====================
+
 Following up on a
 [comment](http://idontgetoutmuch.wordpress.com/2014/04/02/students-t-and-space-leaks/#comments)
 from a previous blog post, let us try using the
@@ -150,24 +200,26 @@ e.g. calculating the skewness and kurtosis incrementally, see below.
 >             L.sum <*>
 >             L.genericLength
 
+And re-writing the sample variance $s^2 = \frac{1}{n-1}\sum_{i=1}^n
+(x_i - \bar{x})^2$ using
+
 $$
-\bar{x} = \frac{1}{n}\sum_{i=1}^n x_i
+\begin{aligned}
+\sum_{i=1}^n (x_i - \bar{x})^2 &= \sum_{i=1}^n (x_i^2 - 2x_i\bar{x} + \bar{x}^2) \\
+&= \sum_{i=1}^n x_i^2 - 2\bar{x}\sum_{i=1}^n x_i + \sum_{i=1}^n \bar{x}^2 \\
+&= \sum_{i=1}^n x_i^2 - 2n\bar{x}^2 + n\bar{x}^2 \\
+&= \sum_{i=1}^n x_i^2 - n\bar{x}^2 \\
+\end{aligned}
 $$
+
+we can then calculate the sample mean and variance using the sums we
+have just calculated.
 
 > xBar :: Double
 > xBar = xSum / n
 
-$$
-M_2 = \frac{1}{n}\sum_{i=1}^n x^2_i
-$$
-
-> m2Xs = x2Sum / n
-
-$$
-s^2 = \frac{1}{n-1}\sum_{i=1}^n (x_i - \bar{x})^2
-$$
-
-> varX = n * (m2Xs - xBar * xBar) / (n - 1)
+> varX = n * (m2Xs - xBar * xBar) / (n - 1
+>   where m2Xs = x2Sum / n
 
 rate $\beta$ and scale $\theta$
 
@@ -186,8 +238,7 @@ rate $\beta$ and scale $\theta$
 > gibbsSamples :: [(Double, Double)]
 > gibbsSamples = evalState (ML.unfoldrM gibbsSampler initTau) (pureMT 1)
 
-Calculate using [incremental]
-(http://en.wikipedia.org/wiki/Algorithms_for_calculating_variance)
+Calculate using [incremental](http://en.wikipedia.org/wiki/Algorithms_for_calculating_variance)
 
 > data Moments = Moments { mN :: !Double
 >                        , m1 :: !Double
@@ -214,9 +265,6 @@ Calculate using [incremental]
 >               6 * delta_n2 * m2 m - 4 * delta_n * m3 m
 >         m3' = m3 m + term1 * delta_n * (n' - 2) - 3 * delta_n * m2 m
 >         m2' = m2 m + term1
-
-> norms :: [Double]
-> norms = evalState (replicateM 10000 (sample (Normal 0.0 1.0))) (pureMT 1)
 
 > numBins :: Int
 > numBins = 400
@@ -264,10 +312,6 @@ dia = image "diagrams/jags.png" 1.0 1.0
 >   putStrLn $ show m
 >   putStrLn $ show $ (sqrt (mN m)) * (m3 m) / (m2 m)**1.5
 >   putStrLn $ show $ (mN m) * (m4 m) / (m2 m)**2
->   let mNorm = moments norms
->   putStrLn $ show mNorm
->   putStrLn $ show $ (sqrt (mN mNorm)) * (m3 mNorm) / (m2 mNorm)**1.5
->   putStrLn $ show $ (mN mNorm) * (m4 mNorm) / (m2 mNorm)**2
 >   displayHeader "diagrams/DataScienceHaskPost.png"
 >     (barDiag
 >      (zip (map fst $ asList hist) (map snd $ asList hist)))
