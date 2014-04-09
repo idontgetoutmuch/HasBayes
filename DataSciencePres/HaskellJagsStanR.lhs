@@ -93,6 +93,45 @@ A Bit of Theory
 Gibbs Sampling
 --------------
 
+For a multi-parameter situation, Gibbs sampling is a special case of
+Metropolis-Hastings in which the proposal distributions are the
+posterior conditional distributions.
+
+Referring back to the explanation of the [metropolis
+algorithm](http://idontgetoutmuch.wordpress.com/2013/12/07/haskell-ising-markov-metropolis/),
+let us describe the state by its parameters $i \triangleq
+\boldsymbol{\theta}^{(i)} \triangleq (\theta^{(i)}_1,\ldots,
+\theta^{(i)}_n)$ and the conditional posteriors by
+$\pi\big({\theta}_{k}^{(j)} \,\big|\, {\boldsymbol{\theta}}_{-k}^{(i)}\big)$ where ${\boldsymbol{\theta}}^{(i)}_{-k} = \big(\theta_1^{(i)},\ldots,\theta_{k-1}^{(i)},\theta_{k+1}^{(i)}\ldots\theta_n^{(i)}\big)$
+then
+
+$$
+\begin{aligned}
+\frac{\pi\big(\boldsymbol{\theta}^{(j)}\big)q\big(\boldsymbol{\theta}^{(j)}, \boldsymbol{\theta}^{(i)}\big)}
+{\pi(\boldsymbol{\theta}^{(i)})q(\boldsymbol{\theta}^{(i)}, \boldsymbol{\theta}^{(j)})}
+&=
+\frac{
+\pi\big({\theta}_{k}^{(j)} \,\big|\, {\boldsymbol{\theta}}_{-k}^{(j)}\big)\pi\big({\boldsymbol{\theta}}_{-k}^{(j)}\big)\pi\big({\theta}_{k}^{(i)} \,\big|\, {\boldsymbol{\theta}}_{-k}^{(j)}\big)
+}
+{
+\pi\big({\theta}_{k}^{(i)} \,\big|\, {\boldsymbol{\theta}}_{-k}^{(i)}\big)\pi\big({\boldsymbol{\theta}}_{-k}^{(i)}\big)\pi\big({\theta}_{k}^{(j)} \,\big|\, {\boldsymbol{\theta}}_{-k}^{(i)}\big)
+} \\
+&=
+\frac{
+\pi\big({\theta}_{k}^{(j)} \,\big|\, {\boldsymbol{\theta}}_{-k}^{(j)}\big)\pi\big({\boldsymbol{\theta}}_{-k}^{(j)}\big)\pi\big({\theta}_{k}^{(i)} \,\big|\, {\boldsymbol{\theta}}_{-k}^{(j)}\big)
+}
+{
+\pi\big({\theta}_{k}^{(i)} \,\big|\, {\boldsymbol{\theta}}_{-k}^{(j)}\big)\pi\big({\boldsymbol{\theta}}_{-k}^{(j)}\big)\pi\big({\theta}_{k}^{(j)} \,\big|\, {\boldsymbol{\theta}}_{-k}^{(j)}\big)
+} \\
+&= 1
+\end{aligned}
+$$
+
+where we have used the rules of conditional probability and the fact that $\boldsymbol{\theta}_i^{(-k)} = \boldsymbol{\theta}_j^{(-k)}$
+
+Thus we always accept the proposed jump. Note that the chain is not in
+general reversible as the order in which the updates are done matters.
+
 Normal Distribution with Unknown Mean and Variance
 --------------------------------------------------
 
@@ -341,6 +380,36 @@ And now we can look at the posterior for $\mu$.
 dia = image "diagrams/jags.png" 1.0 1.0
 ````
 
+The Model in STAN
+=================
+
+[STAN](http://mc-stan.org) is a domain specific language for building
+Bayesian statistical models similar to JAGS but newer and which allows
+variables to be re-assigned and so cannot really be described as
+declarative.
+
+Markov chain Monte Carlo sampling
+~~~~ {.r include="Stan.stan"}
+~~~~
+
+Just as with JAGS, to run it and examine its results, we wrap it up in
+some R.
+
+~~~~{.r include="Stan.R"}
+~~~~
+
+Again we can look at the posterior although we only seem to get
+medians and 80% intervals.
+
+```{.dia width='800'}
+dia = image "diagrams/stan.png" 1.0 1.0
+````
+
+PostAmble
+=========
+
+Write the histogram produced by the Haskell code to a file.
+
 > displayHeader :: FilePath -> Diagram B R2 -> IO ()
 > displayHeader fn =
 >   mainRender ( DiagramOpts (Just 900) (Just 700) fn
@@ -349,13 +418,6 @@ dia = image "diagrams/jags.png" 1.0 1.0
 
 > main :: IO ()
 > main = do
->   let m = moments (take (nrep - nb) $ drop nb $ map fst gibbsSamples)
->   putStrLn $ show m
 >   displayHeader "diagrams/DataScienceHaskPost.png"
 >     (barDiag
 >      (zip (map fst $ asList hist) (map snd $ asList hist)))
-
-Resources
-=========
-
-[STAN](http://stats.stackexchange.com/questions/37611/parameters-without-defined-priors-in-stan)
