@@ -1,0 +1,670 @@
+\documentclass{beamer}
+\usepackage[latin1]{inputenc}
+\usepackage{listings}
+\usepackage{color}
+\usepackage{ulem}
+
+\newcommand {\framedgraphic}[2] {
+    \begin{frame}{#1}
+        \begin{center}
+            \includegraphics[width=\textwidth,height=0.8\textheight,keepaspectratio]{#2}
+        \end{center}
+    \end{frame}
+}
+
+\usetheme{Warsaw}
+\setbeamertemplate{footline}{\insertframenumber/\inserttotalframenumber}
+
+\title[Gibbs Sampling]{Gibbs Sampling \\ Some Theory and Some Practice}
+\author{Dominic Steinitz}
+\date{25th June 2014}
+\begin{document}
+
+\begin{frame}
+\titlepage
+\end{frame}
+
+\section{Introduction}
+
+\subsection{What This Talk is About}
+
+\begin{frame}{What This Talk Is About}
+
+  \begin{itemize}
+  \item Introduction to Markov chain methods.
+  \item Two Gibbs samplers: theory.
+  \item .
+  \item .
+  \end{itemize}
+
+\end{frame}
+
+\section{Introduction to Markov Chain Methods}
+
+\subsection{The Grasshpper's Problems}
+
+\framedgraphic{Visit Each Hour Equally}{diagrams/ClockEqual12.png}
+
+\begin{frame}[fragile]{Suppose Achieve Goal}
+
+  \uncover<1->{
+    $$
+    \pi'(n) = p(n \, |\, n - 1)\pi(n - 1) + p(n \, |\, n + 1)\pi(n + 1)
+    $$
+  }
+  \uncover<2->{
+    $$
+    \pi'(n) = \frac{1}{2}\frac{1}{N} + \frac{1}{2}\frac{1}{N} = \frac{1}{N}
+    $$
+  }
+
+\end{frame}
+
+\begin{frame}[fragile]{Steepest Descent}
+\uncover<1->{
+For each weight, we find the derivative of the cost function wrt that
+weight and use that to step a small distance (the learning rate) in
+the direction which reduces the cost most quickly.
+}
+\end{frame}
+
+\begin{frame}[fragile]{In Summary $\ldots$}
+\begin{itemize}
+\item Hand calculate the derivative
+\item Code it up
+\item Use steepest descent with hand calculated derivative
+\end{itemize}
+\end{frame}
+
+\framedgraphic{Multi Layer Perceptron (MLP)}{diagrams/Fita2.png}
+
+\begin{frame}[fragile]{The Derivative Problem}
+\begin{itemize}
+\item Hand calculating the derivative is more complicated and thus error prone.
+\item What happens if I change my model?
+\item What happens if I change my transfer function?
+\end{itemize}
+\end{frame}
+
+\section{Differentiation Methods}
+
+\subsection{Bumping}
+
+\begin{frame}{Bumping}
+Could try bumping
+$$
+\frac{\partial L(\ldots, w, \ldots)}{\partial w} \approx \frac{L(\ldots, w + \epsilon, \ldots) - L(\ldots, w, \ldots)}{\epsilon}
+$$
+\begin{itemize}
+\item
+But we have many thousands of parameters
+\item
+And we are using floating point arithmetic \ldots
+\end{itemize}
+\end{frame}
+
+\framedgraphic{Floating Point Errors}{diagrams/13a2bd186a0e123f040da9491fa98684.png}
+
+\subsection{Symbolic Differentiation}
+
+\begin{frame}[fragile]{Python Example}
+  Could use a symbolic differentiation package but consider the
+  following Python fragment
+\begin{lstlisting}[language=Python]
+import numpy as np
+
+def many_sines(x):
+    y = x
+    for i in range(1,7):
+        y = np.sin(x+y)
+    return y
+\end{lstlisting}
+\end{frame}
+
+\begin{frame}[fragile]{Python Example}
+When we unroll the loop we are actually evaluating
+
+$$
+f(x) = \sin(x + \sin(x + \sin(x + \sin(x + \sin(x + \sin(x + x))))))
+$$
+
+\end{frame}
+
+\begin{frame}[fragile]{Blow Up}
+Now suppose we want to get the differential of this
+function. Symbolically this would be
+
+$$
+\begin{aligned}
+f'(x) &=           (((((2\cdot \cos(2x)+1)\cdot \\
+      &\phantom{=} \cos(\sin(2x)+x)+1)\cdot \\
+      &\phantom{=} \cos(\sin(\sin(2x)+x)+x)+1)\cdot \\
+      &\phantom{=} \cos(\sin(\sin(\sin(2x)+x)+x)+x)+1)\cdot \\
+      &\phantom{=} \cos(\sin(\sin(\sin(\sin(2x)+x)+x)+x)+x)+1)\cdot \\
+      &\phantom{=} \cos(\sin(\sin(\sin(\sin(\sin(2x)+x)+x)+x)+x)+x)
+\end{aligned}
+$$
+\end{frame}
+
+\begin{frame}[fragile]{Moreover}
+\begin{itemize}
+\item The mathematical function for an MLP could easily be more
+  complicated.
+\pause
+\item To use a symbolic differentiation package (usually) requires
+  some manipulation of the original program.
+\end{itemize}
+\end{frame}
+
+\subsection{Backpropagation}
+
+\begin{frame}[fragile]{Backpropagation}
+\begin{itemize}
+\item Efficient method for finding the derivative for MLPs (1960's).
+\pause
+\item Complex but quite often appears in Machine Learning 101.
+\pause
+\item But maybe following P\'{o}lya we can find a problem that is more
+  general and use this not just for MLPs but for estimating parameters
+  for other Machine Learning models.
+\pause
+\item Idea: we drew the Neural Net as a graph maybe if we can draw a
+  program as a graph we can calculate the derivative of the function
+  which the program represents.
+\end{itemize}
+\end{frame}
+
+\section{Automatic Differentiation}
+
+\subsection{Reverse Mode}
+
+\begin{frame}[fragile]{A Simpler Example}
+Instead of an MLP, consider the function
+
+$$
+f(x) = \exp(\exp(x) + (\exp(x))^2) + \sin(\exp(x) + (\exp(x))^2)
+$$
+
+We wish to find
+
+$$
+\frac{\mathrm{d} f}{\mathrm{d} x}
+$$
+
+We can write this function as a data flow graph...
+\end{frame}
+
+\framedgraphic{Data Flow Graph}{diagrams/Fita3.png}
+
+\begin{frame}[fragile]{The Chain Rule}
+\uncover<1->{
+Recall the {\color{brown}{chain rule}}: if $f(x) = g(h(x))$ and  $y =
+h(x)$ then
+$$
+\frac{\mathrm{d} f}{\mathrm{d} x} =
+\frac{\mathrm{d} g}{\mathrm{d} y}\frac{\mathrm{d} h}{\mathrm{d} x}
+$$
+}
+\uncover<2->{
+Abusing(?) notation
+$$
+\frac{\mathrm{d} f}{\mathrm{d} x} =
+\frac{\mathrm{d} f}{\mathrm{d} y}\frac{\mathrm{d} y}{\mathrm{d} x}
+$$
+}
+\end{frame}
+
+\begin{frame}[fragile]{The Multivariate Chain Rule}
+  \uncover<1->{
+
+    We also need the multivariate form: if $f(u) = g(h_1(u),h_2(u))$
+    and $x = h_1(u)$ and $y = h_2(u)$ then
+
+$$
+\begin{aligned}
+\frac{\partial f}{\partial u} &=
+ \frac{\partial g}{\partial x}\frac{\partial h_1}{\partial u} +
+ \frac{\partial g}{\partial y}\frac{\partial h_2}{\partial u}
+\end{aligned}
+$$
+}
+
+\uncover<2->{
+Again, abusing(?) notation
+
+$$
+\begin{aligned}
+\frac{\partial f}{\partial u} &=
+ \frac{\partial f}{\partial x}\frac{\partial x}{\partial u} +
+ \frac{\partial f}{\partial y}\frac{\partial y}{\partial u}
+\end{aligned}
+$$
+}
+\end{frame}
+
+\framedgraphic{Chain Rule Example: $u_6$ and $u_5$}{diagrams/Fita3.png}
+
+\begin{frame}[fragile]{Chain Rule Example: $u_6$ and $u_5$}
+\uncover<1->{
+Since
+$$
+\begin{aligned}
+u_7 = u_6 + u_5
+\end{aligned}
+$$
+}
+\uncover<2->{
+Then
+$$
+\begin{aligned}
+\frac{\partial u_7}{\partial u_6} &= 1 \\
+\frac{\partial u_7}{\partial u_5} &= 1
+\end{aligned}
+$$
+}
+\end{frame}
+
+\framedgraphic{Chain Rule Example: $u_4$}{diagrams/Fita3.png}
+
+\begin{frame}[fragile]{Chain Rule Example: $u_4$}
+\uncover<1->{
+Now things become more interesting as $u_7$ depends on $u_4$ via $u_6$
+and $u_5$: $u_7 = u_7(u_6(u_4), u_5(u_4))$
+}
+
+\uncover<2->{
+By the multivariate {\color{brown}{chain rule}}
+$$
+\frac{\partial u_7}{\partial u_4} =
+ \frac{\partial u_7}{\partial u_6}\frac{\partial u_6}{\partial u_4} +
+ \frac{\partial u_7}{\partial u_5}\frac{\partial u_5}{\partial u_4}
+$$
+}
+\uncover<3->{
+$$
+= \frac{\partial u_7}{\partial u_6}\exp{u_4} +
+  \frac{\partial u_7}{\partial u_5}\cos{u_4}
+$$
+}
+\end{frame}
+
+\framedgraphic{Chain Rule Example: $u_3$}{diagrams/Fita3.png}
+
+\begin{frame}[fragile]{Chain Rule Example: $u_3$}
+\uncover<1->{
+$u_7$ depends on $u_3$ only via $u_4$: $u_7 = u_7(u_4(u_3))$
+}
+
+\uncover<2->{
+By the {\color{brown}{chain rule}}
+$$
+\begin{aligned}
+ \frac{\partial u_7}{\partial u_3} &=
+ \frac{\partial u_7}{\partial u_4}\frac{\partial u_4}{\partial u_3} \\
+\end{aligned}
+$$
+}
+
+\uncover<3->{
+$$
+= \frac{\partial u_7}{\partial u_4}
+$$
+}
+\end{frame}
+
+\framedgraphic{Chain Rule Example: $u_2$}{diagrams/Fita3.png}
+
+\begin{frame}[fragile]{Chain Rule Example: $u_2$}
+\uncover<1->{
+Now things become more interesting again as $u_7$ depends on $u_2$ via $u_4$
+and $u_3$: $u_7 = u_7(u_4(u_2), u_3(u_2))$
+}
+
+\uncover<2->{
+By the {\color{brown}{chain rule}}
+$$
+\frac{\partial u_7}{\partial u_2} =
+ \frac{\partial u_7}{\partial u_4}\frac{\partial u_4}{\partial u_2} +
+ \frac{\partial u_7}{\partial u_3}\frac{\partial u_3}{\partial u_2}
+$$
+}
+\uncover<3->{
+$$
+= \frac{\partial u_7}{\partial u_4} +
+  \frac{\partial u_7}{\partial u_3}2u_2
+$$
+}
+\end{frame}
+
+\framedgraphic{Chain Rule Example: $u_1$}{diagrams/Fita3.png}
+
+\begin{frame}[fragile]{Chain Rule Example: $u_1$}
+\uncover<1->{
+Finally, $u_7$ depends on $u_1$ via $u_2$: $u_7 = u_7(u_2(u_1))$
+}
+
+\uncover<2->{
+By the {\color{brown}{chain rule}}
+$$
+\frac{\partial u_7}{\partial u_1} =
+\frac{\partial u_7}{\partial u_2}\frac{\partial u_2}{\partial u_1}
+$$
+}
+\uncover<3->{
+$$
+= \frac{\partial u_7}{\partial u_2}\exp{u_2}
+$$
+}
+\end{frame}
+
+\begin{frame}[fragile]{Reverse Mode Summary}
+
+\begin{itemize}
+\pause
+\item Calculate the function and the intermediate values working from
+  left to right (the forward sweep)
+\pause
+\item And calculate the one step derivatives of the
+  primitive functions at the same time
+\pause
+\item Then calculate the required derivative working from right to
+  left (the backward sweep)
+\pause
+\item Same complexity and no loss in precision
+\pause
+\item Pictorial representation of MLP is the data flow graph of its cost
+  function and reverse mode AD is identical to backpropagation
+\end{itemize}
+
+\end{frame}
+
+\subsection{Forward Mode}
+
+\begin{frame}[fragile]{Where's the Fun?}
+What has this got to do with functional programming?
+\end{frame}
+
+\begin{frame}[fragile]{Dual Numbers}
+\begin{itemize}
+\item
+An alternative method for automatic differentiation is called forward
+mode and has a simple implementation. Let us illustrate this using
+Haskell. The actual implementation is about 20 lines of code.
+\pause
+\item
+Let us define dual numbers
+
+\begin{lstlisting}[language=Haskell]
+data Dual = Dual Double Double
+  deriving (Eq, Show)
+\end{lstlisting}
+\pause
+\item
+We can think of these pairs as first order polynomials in the
+indeterminate $\epsilon$, $x + \epsilon x'$ such that $\epsilon^2 = 0$
+(Galois theory)
+\end{itemize}
+\end{frame}
+
+\begin{frame}[fragile]{Dual Numbers}
+Thus, for example, we have
+
+\begin{itemize}
+\pause
+\item $(x + \epsilon x') + (y + \epsilon y') = ((x + y) + \epsilon (x' + y'))$
+\pause
+\item $(x + \epsilon x')(y + \epsilon y') = xy + \epsilon (xy' + x'y)$
+\pause
+\item $\log (x + \epsilon x') = \log x (1 + \epsilon \frac {x'}{x}) =
+  \log x + \epsilon\frac{x'}{x}$
+\pause
+\item $\sqrt{(x + \epsilon x')} = \sqrt{x(1 + \epsilon\frac{x'}{x})} =
+  \sqrt{x}(1 + \epsilon\frac{1}{2}\frac{x'}{x}) = \sqrt{x} +
+  \epsilon\frac{1}{2}\frac{x'}{\sqrt{x}}$
+\end{itemize}
+\end{frame}
+
+\begin{frame}[fragile]{Dual Numbers and The Chain Rule}
+\uncover<1->{
+Notice that these equations implicitly encode the chain rule. For
+example, we know, using the chain rule, that
+
+$$
+\frac{\mathrm{d}}{\mathrm{d} x}\log(\sqrt x) =
+\frac{1}{\sqrt x}\frac{1}{2}x^{-1/2} =
+\frac{1}{2x}
+$$
+}
+
+\uncover<2->{
+And using the example equations above we have
+
+$$
+\begin{aligned}
+\log(\sqrt {x + \epsilon x'}) &= \log (\sqrt{x} +
+\epsilon\frac{1}{2}\frac{x'}{\sqrt{x}}) \\
+&= \log (\sqrt{x}) +
+\epsilon\frac{\frac{1}{2}\frac{x'}{\sqrt{x}}}{\sqrt{x}} = \log
+(\sqrt{x}) + \epsilon x'\frac{1}{2x}
+\end{aligned}
+$$
+}
+\end{frame}
+
+\begin{frame}[fragile]{Dual Numbers Example}
+Notice that dual numbers carry around the calculation and the
+derivative of the calculation.
+
+\begin{itemize}
+\pause
+\item
+To actually evaluate $\log(\sqrt{x})$
+at a particular value, say 2, we plug in 2 for $x$ and 1 for $x'$
+$$
+\log (\sqrt{2 + \epsilon 1}) = \log(\sqrt{2}) + \epsilon\frac{1}{4}
+$$
+\pause
+\item
+Thus the derivative of $\log(\sqrt{x})$ at 2 is $1/4$.
+\end{itemize}
+\end{frame}
+
+\begin{frame}[fragile]{Dual Numbers are Numbers}
+\begin{scriptsize}
+\begin{lstlisting}[language=Haskell]
+instance Num Dual where
+  fromInteger n             = undefined
+  (Dual x x') + (Dual y y') = Dual (x + y) (x' + y')
+  (Dual x x') * (Dual y y') = Dual (x * y) (x * y' + y * x')
+  negate (Dual x x')        = Dual (negate x) (negate x')
+  signum _                  = undefined
+  abs _                     = undefined
+\end{lstlisting}
+\end{scriptsize}
+\end{frame}
+
+\begin{frame}[fragile]{Dual Numbers Can Be Divided}
+\begin{scriptsize}
+\begin{lstlisting}[language=Haskell]
+instance Fractional Dual where
+  fromRational p    = undefined
+  recip (Dual x x') = Dual (1.0 / x) (-x' / (x * x))
+\end{lstlisting}
+\end{scriptsize}
+\end{frame}
+
+\begin{frame}[fragile]{Dual Numbers are Quasi Floating Point}
+\begin{scriptsize}
+\begin{lstlisting}[language=Haskell]
+instance Floating Dual where
+  pi                = Dual pi        0
+  exp   (Dual x x') = Dual (exp x)   (x' * exp x)
+\end{lstlisting}
+\color{blue}
+\begin{lstlisting}[language=Haskell]
+  log   (Dual x x') = Dual (log x)   (x' / x)
+  sqrt  (Dual x x') = Dual (sqrt x)  (x' / (2 * sqrt x))
+\end{lstlisting}
+\color{black}
+\begin{lstlisting}[language=Haskell]
+  sin   (Dual x x') = Dual (sin x)   (x' * cos x)
+  cos   (Dual x x') = Dual (cos x)   (x' * (- sin x))
+  sinh  (Dual x x') = Dual (sinh x)  (x' * cosh x)
+  cosh  (Dual x x') = Dual (cosh x)  (x' * sinh x)
+  asin  (Dual x x') = Dual (asin x)  (x' / sqrt (1 - x*x))
+  acos  (Dual x x') = Dual (acos x)  (x' / (-sqrt (1 - x*x)))
+  atan  (Dual x x') = Dual (atan x)  (x' / (1 + x*x))
+  asinh (Dual x x') = Dual (asinh x) (x' / sqrt (1 + x*x))
+  acosh (Dual x x') = Dual (acosh x) (x' / (sqrt (x*x - 1)))
+  atanh (Dual x x') = Dual (atanh x) (x' / (1 - x*x))
+\end{lstlisting}
+\end{scriptsize}
+\end{frame}
+
+
+\begin{frame}[fragile]{Example}
+That's all we need to do --- let's try it
+
+\begin{scriptsize}
+\begin{lstlisting}[language=Haskell]
+f = log . sqrt
+\end{lstlisting}
+\end{scriptsize}
+
+\begin{scriptsize}
+\begin{lstlisting}
+ghci> f (Dual 2 1)
+  Dual 0.347 0.250
+\end{lstlisting}
+\end{scriptsize}
+\end{frame}
+
+\begin{frame}[fragile]{Automatic Differentiation is {\em Not} Symbolic
+    Differentiation}
+To see that we are *not* doing symbolic differentiation (it's easy to
+see we are not doing numerical differentiation) let us step
+through the actual evaluation.
+
+$$
+\begin{aligned}
+f (\mathrm{Dual}\,2\,1) &\longrightarrow (\mathrm{log} \cdot \mathrm{sqrt}) (\mathrm{Dual}\,2\,1) \\
+&\longrightarrow \mathrm{log} \bigg(\mathrm{Dual}\,\sqrt{2}\,\frac{1}{2\sqrt{2}}\bigg) \\
+&\longrightarrow  \mathrm{log} (\mathrm{Dual}\,1.414\,0.354) \\
+&\longrightarrow \mathrm{Dual}\,\log{1.414}\,\frac{0.354}{1.414} \\
+&\longrightarrow \mathrm{Dual}\,0.347\,0.250\\
+\end{aligned}
+$$
+\end{frame}
+
+\section{Application}
+
+\begin{frame}[fragile]{Linear Regression}
+\begin{itemize}
+\item
+$$
+L(\boldsymbol{x}, \boldsymbol{y}, m, c) = \frac{1}{2n}\sum_{i=1}^n (y_i - (mx_i + c))^2
+$$
+
+\pause
+\item
+\begin{scriptsize}
+\begin{lstlisting}[language=Haskell]
+cost m c xs ys = (sum (zipWith errSq xs ys)) /
+                 (2 * (fromIntegral (length xs)))
+  where
+    errSq x y = z * z
+      where
+        z = y - (m * x + c)
+\end{lstlisting}
+\end{scriptsize}
+\end{itemize}
+\end{frame}
+
+\begin{frame}[fragile]{Linear Regression}
+\begin{itemize}
+\item
+\begin{scriptsize}
+\begin{lstlisting}[language=Haskell]
+g m c = cost m c xs ys
+\end{lstlisting}
+\end{scriptsize}
+
+\pause
+\item
+\begin{scriptsize}
+\begin{lstlisting}[language=Haskell]
+zs = (0.1, 0.1) : map f zs
+  where
+
+    deriv (Dual _ x') = x'
+
+    f (c, m) = (c - gamma * cDeriv, m - gamma * mDeriv)
+      where
+        cDeriv = deriv (g (Dual m 0) (Dual c 1))
+        mDeriv = deriv (flip g (Dual c 0) (Dual m 1))
+\end{lstlisting}
+\end{scriptsize}
+\end{itemize}
+\end{frame}
+
+\begin{frame}[fragile]{Linear Regression}
+\begin{scriptsize}
+\begin{lstlisting}
+ghci> take 10 zs
+  [(0.1,0.1),
+   (0.554,3.2240000000000006),
+   (0.30255999999999983,1.4371599999999995),
+   (0.4542824,2.4573704000000003),
+   (0.3754896159999999,1.8730778559999997),
+   (0.42839290304,2.2059302422400004),
+   (0.4059525336255999,2.0145512305216),
+   (0.42651316156582386,2.1228327781207037),
+   (0.42242942391663607,2.059837404270339),
+   (0.43236801802049607,2.0947533284323567)]
+\end{lstlisting}
+\end{scriptsize}
+\end{frame}
+
+\section{Concluding Thoughts}
+
+\begin{frame}[fragile]{Efficiency}
+Perhaps AD is underused because of efficiency?
+
+\begin{itemize}
+\pause
+\item
+It seems that the Financial Services industry is aware that AD is {\em
+  more} efficient than current practice. Order of magnitude
+improvements have been reported.
+\pause
+\item
+Smoking Adjoints: fast evaluation of Greeks in Monte Carlo Calculations
+\pause
+\item
+Adjoints and automatic (algorithmic) differentiation in computational finance
+\pause
+\item
+Perhaps AD is slowly permeating into Machine Learning as well but
+there seem to be no easy to find benchmarks.
+\pause
+\item
+Good Morning, Economics Blog
+\pause
+\item
+Andrew Gelman's Blog
+\end{itemize}
+\end{frame}
+
+\begin{frame}[fragile]{Resources}
+\begin{itemize}
+\item \textcolor{blue}{http://idontgetoutmuch.wordpress.com}
+\item
+  \textcolor{blue}{http://en.wikipedia.org/wiki/Automatic\_differentiation}
+\item \textcolor{blue}{http://www.autodiff.org}
+\item \textcolor{blue}{http://hackage.haskell.org/package/ad}
+\item \textcolor{blue}{http://mc-stan.org}
+\item \textcolor{blue}{The Monad.Reader Issue 21}
+\end{itemize}
+\end{frame}
+
+\end{document}
