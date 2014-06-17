@@ -60,30 +60,99 @@
 
 \end{frame}
 
-\begin{frame}[fragile]{Steepest Descent}
-\uncover<1->{
-For each weight, we find the derivative of the cost function wrt that
-weight and use that to step a small distance (the learning rate) in
-the direction which reduces the cost most quickly.
+\begin{frame}[fragile]{Testing Convergence}
+\begin{verbatim}
+ghci> startOnOne
+  (1><5)
+   [ 1.0, 0.0, 0.0, 0.0, 0.0 ]
+
+ghci> eqProbsMat
+  (5><5)
+   [ 0.0, 0.5, 0.0, 0.0, 0.5
+   , 0.5, 0.0, 0.5, 0.0, 0.0
+   , 0.0, 0.5, 0.0, 0.5, 0.0
+   , 0.0, 0.0, 0.5, 0.0, 0.5
+   , 0.5, 0.0, 0.0, 0.5, 0.0 ]
+\end{verbatim}
+\end{frame}
+
+\begin{frame}[fragile]{Testing Convergence}
+\begin{verbatim}
+
+ghci> take 1 $
+      drop 1000 $
+      iterate (<> eqProbsMat) startOnOne
+  [(1><5)
+   [ 0.2, 0.2, 0.2, 0.2, 0.2 ]]
+\end{verbatim}
+\end{frame}
+
+\framedgraphic{Visit Each Hour Proportionally}{diagrams/ClockProp12.png}
+
+\begin{frame}[fragile]{Suppose Achieve Goal}
+  \uncover<1->{
+    $$
+    \pi'(n) = p(n \, |\, n - 1)\pi(n - 1) + p(n \, |\, n)\pi(n) + p(n \, |\, n + 1)\pi(n + 1)
+    $$
+  }
+  \uncover<2->{
+    $$
+    \begin{aligned}
+      \pi'(4) &= \frac{1}{2}\pi(3) +
+      \frac{1}{2}\frac{1}{4}\pi(4) +
+      \frac{1}{2}\frac{4}{5}\pi(5) \\
+      &= \frac{1}{2}\bigg(\frac{3}{N} + \frac{1}{4}\frac{4}{N} + \frac{4}{5}\frac{5}{N}\bigg) \\
+      &= \frac{1}{N}\frac{8}{2} \\
+      &= \frac{4}{N} \\
+      &= \pi(4)
+    \end{aligned}
+    $$
+  }
+\end{frame}
+
+\begin{frame}[fragile]{Testing Convergence}
+\begin{verbatim}
+    ghci> incProbsMat
+    (5><5)
+    [ 0.00, 0.500, 0.000, 0.000, 0.5
+    , 0.25, 0.250, 0.500, 0.000, 0.0
+    , 0.00, 0.333, 0.167, 0.500, 0.0
+    , 0.00, 0.000, 0.375, 0.125, 0.5
+    , 0.10, 0.000, 0.000, 0.400, 0.5 ]
+
+    ghci> take 1 $
+          drop 1000 $
+          iterate (<> incProbsMat) startOnOne
+    [(1><5)
+      [ 6.67e-2, 0.133, 0.199, 0.267, 0.333 ]]
+\end{verbatim}
+\end{frame}
+
+\begin{frame}[fragile]{Very Simple Markov Chain}
+$$
+q(i, j) =
+\begin{cases}
+\mathbb{P} (X_{n+1} = j \,|\, X_n = i) = \frac{1}{2} & \text{if } j = i + 1 \mod N \\
+\mathbb{P} (X_{n+1} = j \,|\, X_n = i) = \frac{1}{2} & \text{if } j = i - 1 \mod N \\
+\mathbb{P} (X_{n+1} = j \,|\, X_n = i) = 0 & \text{otherwise }
+\end{cases}
+$$
+\end{frame}
+
+\begin{frame}[fragile]{Very Simple Markov Chain}
+  \uncover<1->{
+    The grasshopper knows that $\pi(i) = i/N$ so it can calculate
+    $\pi(j)/\pi(i) = j/i$ without knowing $N$.
+  }
+\uncover<2->{
+  $$
+  p(i, j) =
+  \begin{cases}
+    q(i,j)\bigg[\frac{\pi(j) q(j,i)}{\pi(i) q(i,j)} \land 1 \bigg] & \text{if } j \ne i \\
+    1 - \sum_{k : k \ne i} q(i,k) \bigg[\frac{\pi(k) q(k,i)}{\pi(i) q(i,k)} \land 1 \bigg] & \text{if } j = i
+  \end{cases}
+  $$
 }
-\end{frame}
-
-\begin{frame}[fragile]{In Summary $\ldots$}
-\begin{itemize}
-\item Hand calculate the derivative
-\item Code it up
-\item Use steepest descent with hand calculated derivative
-\end{itemize}
-\end{frame}
-
-\framedgraphic{Multi Layer Perceptron (MLP)}{diagrams/Fita2.png}
-
-\begin{frame}[fragile]{The Derivative Problem}
-\begin{itemize}
-\item Hand calculating the derivative is more complicated and thus error prone.
-\item What happens if I change my model?
-\item What happens if I change my transfer function?
-\end{itemize}
 \end{frame}
 
 \section{Differentiation Methods}
