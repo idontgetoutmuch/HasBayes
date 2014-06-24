@@ -388,7 +388,6 @@ Bayesian statistical models similar to JAGS but newer and which allows
 variables to be re-assigned and so cannot really be described as
 declarative.
 
-Markov chain Monte Carlo sampling
 ~~~~ {.r include="Stan.stan"}
 ~~~~
 
@@ -421,3 +420,5 @@ Write the histogram produced by the Haskell code to a file.
 >   displayHeader "diagrams/DataScienceHaskPost.png"
 >     (barDiag
 >      (zip (map fst $ asList hist) (map snd $ asList hist)))
+
+The code can be downloaded from [github](https://github.com/idontgetoutmuch/HasBayes).
