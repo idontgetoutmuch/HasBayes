@@ -16,6 +16,7 @@
 %format xBar      = "\bar{x}"
 %format x2Sum     = "\sum x_i^2"
 
+\usepackage{media9}
 
 \usepackage[latin1]{inputenc}
 \usepackage{listings}
@@ -42,24 +43,13 @@
 \titlepage
 \end{frame}
 
-\section{Introduction}
-
-\subsection{What This Talk is About}
-
-\begin{frame}{What This Talk Is About}
-
-  \begin{itemize}
-  \item Introduction to Markov chain methods.
-  \item Two Gibbs samplers: theory.
-  \item .
-  \item .
-  \end{itemize}
-
+\begin{frame}{Outline}
+  \tableofcontents[subsectionsonly, pausesections]
 \end{frame}
 
 \section{Introduction to Markov Chain Methods}
 
-\subsection{The Grasshpper's Problems}
+\subsection{The Grasshopper's Problems}
 
 \framedgraphic{Visit Each Hour Equally}{diagrams/ClockEqual12.png}
 
@@ -199,35 +189,65 @@ $$
   \end{itemize}
 \end{frame}
 
-\subsection{Metropolis-Hastings Differentiation}
+\subsection{Metropolis-Hastings}
 
 \begin{frame}[fragile]{Ergodic Theorem}
+\uncover<1->{
 An irreducible, aperiodic and positive recurrent Markov chain has a
 unique stationary distribution.
+}
 
+\uncover<2->{
 Roughly speaking
-
 \begin{itemize}
+  \pause
   \item
     Irreducible means it is possible to get from any state to any other state.
-    \pause
+  \pause
   \item
     Aperiodic means that returning to a state having started at that
     state occurs at irregular times.
-    \pause
-    \item
-      Positive recurrent means that the first time to hit a state is
-      finite (for every state and more pedantically except on
-      sets of null measure).
+  \pause
+  \item
+    Positive recurrent means that the first time to hit a state is
+    finite (for every state and more pedantically except on
+    sets of null measure).
 \end{itemize}
+}
+\end{frame}
+
+\begin{frame}[fragile]{Detailed Balance}
+\uncover<1->{
+A Markov chain $p(i,j)$ and a distribution $\pi$ are said to be in
+\textbf{detailed balance} if
+
+$$ \pi(i) p(i,j) = \pi(j) p(j,i) $$
+}
+
+\uncover<2->{
+Summing over $i$
+
+$$
+\mathbf{\pi}P = \mathbf{\pi}
+$$
+
+So clearly stationary.
+}
 \end{frame}
 
 \begin{frame}[fragile]{Metropolis-Hastings}
-Let $\pi$ be a probability distribution on the state space
-$\Omega$ with $\pi(i) > 0$ for all $i$ and let $(Q, \pi_0)$ be an
+Let
+\begin{itemize}
+\item
+ $\pi$ be a probability distribution on the state space
+$\Omega$ with $\pi(i) > 0$ for all $i$
+\item
+$(Q, \pi_0)$ be an
 ergodic Markov chain on $\Omega$ with transition probabilities $q(i,j)> 0$
-(the latter condition is slightly stronger than it need be but
-we will not need fully general conditions).
+\end{itemize}
+
+The latter condition is slightly stronger than it need be but
+we will not need fully general conditions.
 \end{frame}
 
 \begin{frame}[fragile]{Metropolis-Hastings}
@@ -240,8 +260,6 @@ we will not need fully general conditions).
     1 - \sum_{k : k \ne i} q(i,k) \bigg[\frac{\pi(j) q(j,i)}{\pi(i) q(i,j)} \land 1 \bigg] & \text{if } j = i
   \end{cases}
   $$
-
-  where $\land$ takes the maximum of its arguments.
 \end{frame}
 
 \begin{frame}[fragile]{Metropolis-Hastings is Ergodic}
@@ -364,6 +382,9 @@ specified to provide estimates of values of interest.
   \item
     Cannot apply the ergodic theorem as it only applies to
     time-homogeneous processes.
+    \pause
+  \item
+    $\dots$ does not satisfy detailed balance
   \end{itemize}
 \end{frame}
 
@@ -418,10 +439,10 @@ gibbsSampler oldTheta2 = do
 \end{frame}
 
 \begin{frame}[fragile]{Haskell}
+From which we can create an infinite stream of samples.
 \begin{code}
-runMCMC :: Int -> [(Double, Double)]
-runMCMC n =
-  take n $
+runMCMC :: [(Double, Double)]
+runMCMC =
   drop burnIn $
   snd $
   runWriter $
@@ -432,7 +453,7 @@ runMCMC n =
 
 \framedgraphic{Typical Paths}{diagrams/Paths.png}
 
-\framedgraphic{Typical Paths}{diagrams/Samples.png}
+\framedgraphic{Typical Samples}{diagrams/Samples.png}
 
 \section{Application in Statistics}
 
@@ -446,7 +467,7 @@ $$
 $$
 
 $$
-p(\boldsymbol{x}\,\vert\,\mu, \sigma) = \prod_{i=1}^n \bigg(\frac{1}{\sigma\sqrt{2\pi}}\bigg)\exp{\bigg( -\frac{(x_i - \mu)^2}{2\sigma^2}\bigg)}
+p(\boldsymbol{x}\,\vert\,\mu, \sigma^2) = \prod_{i=1}^n \bigg(\frac{1}{\sigma\sqrt{2\pi}}\bigg)\exp{\bigg( -\frac{(x_i - \mu)^2}{2\sigma^2}\bigg)}
 $$
 \end{frame}
 
@@ -491,7 +512,7 @@ Thus the conditional posterior for $\mu$ is
 
 $$
 \begin{aligned}
-p(\mu \,\vert\, \tau, \boldsymbol{x}) &\propto \exp{\bigg( -\frac{\tau}{2}\bigg(\nu s^2 + \sum_{i=1}^n{(\mu - \bar{x})^2}\bigg)\bigg)} \\
+p(\mu \,\vert\, \tau, \boldsymbol{x}) &\propto \exp{\bigg( -\frac{\tau}{2}\bigg(\nu s^2 + n(\bar{x} - \mu)^2\bigg)\bigg)} \\
 &\propto \exp{\bigg( -\frac{n\tau}{2}{(\mu - \bar{x})^2}\bigg)} \\
 \end{aligned}
 $$
@@ -553,8 +574,6 @@ gibbsSamples = evalState (unfoldrM gibbsSampler initTau)
 JAGS is a mature, DSL for building Bayesian statistical models
 using Gibbs(?) sampling.
 
-Here is our model as expressed in JAGS. Somewhat terse.
-\begin{scriptsize}
 \begin{lstlisting}
 model {
 	for (i in 1:N) {
@@ -565,15 +584,15 @@ model {
 	sigma ~ dunif(0, 1000)
 }
 \end{lstlisting}
-\end{scriptsize}
 \end{frame}
 
 \framedgraphic{Output for JAGS}{diagrams/jags.png}
 
-\begin{frame}[fragile]{STAN} STAN: DSL similar to JAGS but newer, uses
+\begin{frame}[fragile]{STAN}
+STAN: DSL similar to JAGS but newer, uses
 HMC, allows variable re-assignment, cannot really be described as
 declarative.
-\begin{scriptsize}
+
 \begin{lstlisting}
 data {
   int<lower=0> N;
@@ -588,20 +607,181 @@ model{
   mu    ~ normal(0, 1000);
 }
 \end{lstlisting}
-\end{scriptsize}
 \end{frame}
 
-\framedgraphic{Output for JAGS}{diagrams/stan.png}
+\framedgraphic{Output for STAN}{diagrams/stan.png}
 
-\begin{frame}[fragile]{Resources}
+\section{The Ising Model}
+
+\begin{frame}[fragile]{Curie Temperature}
+\begin{center}
+\includemedia[
+  width=0.9\linewidth,
+  height=0.5\linewidth,
+  activate=pageopen,
+  addresource=diagrams/NickelCurie.mp4,
+  flashvars={source=diagrams/NickelCurie.mp4}
+]{}{VPlayer.swf}
+\end{center}
+\end{frame}
+
+\framedgraphic{Ising in a Nutshell}{diagrams/IsingOverview.png}
+
+\begin{frame}[fragile]{Boltzmann Distribution}
+To calculate the total magnetization, pick random configurations according to the
+Boltzmann distribution.
+
+$$
+\mathbb{P}(\sigma) = \frac{\exp(-E(\sigma) / k_B T)}{Z(T)}
+$$
+
+$T$ temperature, $k_B$ Boltzmann's constant,
+$E$ energy.
+
+$$
+E(\sigma) = -J\sum_{\langle i, j\rangle} \sigma_i \sigma_j
+$$
+
+$Z(T)$ normalizing constant, $J$ a constant.
+
+$$
+Z(T) = \sum_\sigma \exp(-E(\sigma) / k_B T)
+$$
+\end{frame}
+
+\begin{frame}[fragile]{Uniform Sampling}
+\uncover<1->{
+But what about the normalizing constant $Z$? Even for a modest grid
+size say $10 \times 10$, the number of states that needs to be summed
+over is extremely large $2^{10 \times 10}$.
+}
+
+\uncover<2->{
+Idea: could draw R random
+samples $(\sigma^{(i)})_{0 \le i < R}$ uniformly then use
+
+$$
+Z_R \triangleq \sum_0^{R-1} \exp (-\beta\sigma_i)
+$$
+}
+\end{frame}
+
+\begin{frame}[fragile]{Uniform Sampling}
+Now can estimate e.g. the magnetization
+
+$$
+\langle M \rangle = \sum_\sigma M(\sigma) \frac{\exp(-\beta E(\sigma))}{Z(T)}
+$$
+
+by
+
+$$
+\widehat{\langle M \rangle} = \sum_{i=0}^{R-1} M(\sigma) \frac{exp(-\beta E(\sigma(i)))}{Z_R}
+$$
+\end{frame}
+
+\begin{frame}[fragile]{Problem}
+\uncover<1->{
+Statistical physics tells us that systems with large
+numbers of particles will occupy a small portion of the state space
+with any significant probability.
+}
+
+\uncover<2->{
+High dimensional distribution concentrated on
+small region of the state space: typical set $T$
+volume is given by $|T| \approx 2^H$ where $H$ is the (Shannon)
+entropy.
+
+$$
+H = -\sum_\sigma P(\sigma)\log_2(P(\sigma))
+$$
+}
+
+\uncover<3->{
+Actual
+value of the (mean) magnetization will determined by the values that
+$M$ takes on $T$.
+}
+\end{frame}
+
+\begin{frame}[fragile]{Problem}
+\uncover<1->{
+Uniform sampling will only give a good
+estimate if we make $R$ large enough that we hit $T$ at least a small
+number of times.
+}
+
+\uncover<2->{
+The total size of the state space is $2^N$ and
+$|T| \approx 2^H$, so there is a probability of $2^H / 2^N$ of hitting
+$T$.
+}
+
+\uncover<3->{
+Thus we need roughly $2^{N - H}$ samples to hit $T$.
+}
+\end{frame}
+
+\framedgraphic{Boltzmann Distribution}{diagrams/BoltzmannChart.png}
+
+\begin{frame}[fragile]{High Temperature}
+At high temperatures, the Boltzmann distribution flattens out so
+roughly all of the states have an equal likelihood of being
+occupied. We can calculate the (Shannon) entropy for this.
+
+$$
+H \approx \sum_\sigma \frac{1}{2^N}\log_2 2^N = N
+$$
+\end{frame}
+
+\begin{frame}[fragile]{Low Temperature}
 \begin{itemize}
-\item \textcolor{blue}{http://idontgetoutmuch.wordpress.com}
 \item
-  \textcolor{blue}{http://en.wikipedia.org/wiki/Automatic\_differentiation}
-\item \textcolor{blue}{http://www.autodiff.org}
-\item \textcolor{blue}{http://hackage.haskell.org/package/ad}
-\item \textcolor{blue}{http://mc-stan.org}
-\item \textcolor{blue}{The Monad.Reader Issue 21}
+At "low" temperatures e.g. the temperature at which the phase transition occurs, $T = 2.269$, the entropy is approximately $0.13N$.
+\pause
+\item
+So uniform sampling
+would require $\sim 2^{(N - N)}$ samples at high temperatures but $\sim
+2^{(N - 0.13N)} \approx 2^{N /2}$ at temperatures of interest. Even for
+our modest $10 \times 10$ grid this is $2^{50} \approx 10^{17}$ samples!
+\pause
+\item
+Enter Metropolis and his team: construct a Markov chain with a limiting distribution of the
+distribution required --- does not require the evaluation of the
+partition function --- samples high density areas with high probability (although
+theoretical results substantiating this latter point seem to be hard
+to come by).
+\end{itemize}
+\end{frame}
+
+\begin{frame}[fragile]{Gibbs}
+Use random scan and
+$$
+\begin{aligned}
+& p(\sigma_i = +1 \,\vert\, \sigma_{-i}) = \\
+& \frac{\exp \bigg( J/k_bT \sum_{\langle i, j\rangle} \sigma_j\bigg)}
+       {\exp \bigg( J/k_bT \sum_{\langle i, j\rangle} \sigma_j\bigg) +
+        \exp \bigg(-J/k_bT \sum_{\langle i, j\rangle} \sigma_j\bigg)}
+\end{aligned}
+$$
+\end{frame}
+
+\framedgraphic{An Possible Flip}{diagrams/IsingFlip.png}
+
+\framedgraphic{Evolution at $T=2$, steps = 100, 1000, 10,000}{diagrams/IsingRuns2.png}
+
+\framedgraphic{Evolution at $T=3$, steps = 100, 1000, 10,000}{diagrams/IsingRuns3.png}
+
+\framedgraphic{The Phase Transition Revealed}{diagrams/MagnetismAndEnergy.png}
+
+\section{Appendices}
+
+\begin{frame}[fragile]{Acknowledgements}
+\begin{itemize}
+\item \textcolor{blue}{http://education.mrsec.wisc.edu/463.htm}
+\item \textcolor{blue}{http://www.inference.phy.cam.ac.uk/itila/book.html}
+\item \textcolor{blue}{http://idontgetoutmuch.wordpress.com}
 \end{itemize}
 \end{frame}
 
