@@ -30,6 +30,8 @@ Preamble
 > import Data.Random.Source.PureMT
 > import Data.Random
 > import Control.Monad.State
+> import qualified Control.Monad.Writer as W
+> import Control.Monad.Loops
 > -- import Data.Histogram ( asList )
 > import qualified Data.Histogram as H
 > import Data.Histogram.Fill
@@ -62,52 +64,106 @@ using MCMC in the
 [example](https://idontgetoutmuch.wordpress.com/2014/09/09/fun-with-extended-kalman-filters-4/)
 in which we used Kalman filtering.
 
-Our data is IID normal, $x_i \sim \cal{N}(\mu, \sigma)$, where
-$\sigma$ is known, so the likelihood is
+Our data is given by
 
 $$
-p(x\,|\,\mu, \sigma) \propto \prod_{i=1}^n \exp{\bigg( -\frac{(x_i - \mu)^2}{2\sigma^2}\bigg)}
+\begin{aligned}
+p_i &= \frac{kp_0\exp r\Delta T i}{k + p_0(\exp r\Delta T i - 1)} \\
+y_i &= p_i + \epsilon_i
+\end{aligned}
 $$
 
-where
+In other words $y_i \sim \cal{N}(p_i, \sigma^2)$, where $\sigma$ is
+known so the likelihood is
 
 $$
-\mu = 
+p(y\,|\,r) \propto \prod_{i=1}^n \exp{\bigg( -\frac{(y_i - p_i)^2}{2\sigma^2}\bigg)} =
+\exp{\bigg( -\sum_{i=1}^n \frac{(y_i - p_i)^2}{2\sigma^2}\bigg)}
 $$
 
+Let us assume a prior of $r \sim {\cal{N}}(\mu_0,\sigma_0^2)$ then the posterior becomes
+
 $$
-\eta = \log{\frac{\theta}{1 - \theta}}
+p(r\,|\,y) \propto \exp{\bigg( -\frac{(r - \mu_0)^2}{2\sigma_0^2} \bigg)} \exp{\bigg( -\sum_{i=1}^n \frac{(y_i - p_i)^2}{2\sigma^2}\bigg)}
 $$
+
+Let us assume a growth rate
 
 > mu0 :: Double
-> mu0 = 11.0
+> mu0 = 10.0
+
+The known variance for the samples
+
+> sigma0 :: Double
+> sigma0 = 1e1
+
+> sigma :: Double
+> sigma = 1e-2
+
+> prior' :: Double -> Double
+> prior' r = exp (-(r - mu0)**2 / (2 * sigma0**2))
+>
+> likelihood' :: Double -> [Double] -> Double
+> likelihood' r ys = exp (-sum (zipWith (\y mu -> (y - mu)**2 / (2 * sigma**2)) ys mus))
+>   where
+>     mus :: [Double]
+>     mus = map (logit p0 k . (* (r * deltaT))) (map fromIntegral [0..])
+>
+> posterior' :: Double -> [Double] -> Double
+> posterior' r ys = likelihood' r ys * prior' r
+
+Here's the implementation of the logistic function
+
+> logit :: Double -> Double -> Double -> Double
+> logit p0 k x = k * p0 * (exp x) / (k + p0 * (exp x - 1))
+
+We assume most of the parameters are known with the exception of the
+the growth rate $r$. We fix this also in order to generate test data.
+
+> k, p0 :: Double
+> k = 1.0
+> p0 = 0.1
+
+> r, deltaT :: Double
+> r = 10.0
+> deltaT = 0.0005
+
+> singleSample :: Double -> RVarT (W.Writer [Double]) Double
+> singleSample p0 = do
+>   epsilon <- rvarT (Normal 0.0 sigma)
+>   let p1 = logit p0 k (r * deltaT)
+>   lift $ W.tell [p1 + epsilon]
+>   return p1
+
+> nObs :: Int
+> nObs = 300
+
+> streamSample :: RVarT (W.Writer [Double]) Double
+> streamSample = iterateM_ singleSample p0
+
+> samples :: [Double]
+> samples = take nObs $ snd $
+>           W.runWriter (evalStateT (sample streamSample) (pureMT 3))
+
+The [Metropolis
+algorithm](http://en.wikipedia.org/wiki/Metropolis–Hastings_algorithm)
+tells us that we always jump to a better place but only sometimes jump
+to a worse place. We count the number of acceptances as we go.
+
+> acceptanceProb' :: Double -> Double -> [Double] -> Double
+> acceptanceProb' r r' ys = min 1.0 ((posterior' r' ys) / (posterior' r ys))
+
+> oneStep' :: (Double, Int) -> (Double, Double) -> (Double, Int)
+> oneStep' (mu, nAccs) (proposedJump, acceptOrReject) =
+>   if acceptOrReject < acceptanceProb' r (r + proposedJump) samples
+>   then (mu + proposedJump, nAccs + 1)
+>   else (mu, nAccs)
+
+
 
 and express our uncertainty about it with a largish prior variance
 
-> sigma_0 :: Double
-> sigma_0 = 2.0
-
-And also arbitrarily let us pick the know variance for the samples as
-
-> sigma :: Double
-> sigma = 1.0
-
-> hierarchicalSample :: MonadRandom m => m Double
-> hierarchicalSample = do
->   mu <- sample (Normal mu0 sigma_0)
->   x  <- sample (Normal mu sigma)
->   return x
-
-> nSamples :: Int
-> nSamples = 10
-
-> arbSeed :: Int
-> arbSeed = 2
-
-> simpleXs :: [Double]
-> simpleXs =
->   evalState (replicateM nSamples hierarchicalSample)
->             (pureMT $ fromIntegral arbSeed)
+And also arbitrarily let us pick the known variance for the samples as
 
 Via Markov Chain Monte Carlo
 ----------------------------
@@ -126,34 +182,16 @@ We also need samples from the uniform distribution
 
 And now we can calculate the (un-normalised) prior, likelihood and posterior
 
-> prior :: Double -> Double
-> prior mu = exp (-(mu - mu0)**2 / (2 * sigma_0**2))
->
-> likelihood :: Double -> [Double] -> Double
-> likelihood mu xs = exp (-sum (map (\x -> (x - mu)**2 / (2 * sigma**2)) xs))
->
-> posterior :: Double -> [Double] -> Double
-> posterior mu xs = likelihood mu xs * prior mu
-
 The [Metropolis
 algorithm](http://en.wikipedia.org/wiki/Metropolis–Hastings_algorithm)
 tells us that we always jump to a better place but only sometimes jump
 to a worse place. We count the number of acceptances as we go.
 
-> acceptanceProb :: Double -> Double -> [Double] -> Double
-> acceptanceProb mu mu' xs = min 1.0 ((posterior mu' xs) / (posterior mu xs))
-
-> oneStep :: (Double, Int) -> (Double, Double) -> (Double, Int)
-> oneStep (mu, nAccs) (proposedJump, acceptOrReject) =
->   if acceptOrReject < acceptanceProb mu (mu + proposedJump) simpleXs
->   then (mu + proposedJump, nAccs + 1)
->   else (mu, nAccs)
-
 Now we can actually run our simulation. We set the number of jumps and
 a burn in but do not do any thinning.
 
 > nIters, burnIn :: Int
-> nIters = 300000
+> nIters = 3000
 > burnIn = nIters `div` 10
 
 Let us start our chain at
@@ -164,12 +202,12 @@ Let us start our chain at
 and set the variance of the jumps to
 
 > jumpVar :: Double
-> jumpVar = 0.4
+> jumpVar = 0.01
 
 > test :: Int -> [(Double, Int)]
 > test seed =
 >   drop burnIn $
->   scanl oneStep (startMu, 0) $
+>   scanl oneStep' (startMu, 0) $
 >   zip (normalisedProposals seed jumpVar nIters)
 >       (acceptOrRejects seed nIters)
 
@@ -181,8 +219,8 @@ We put the data into a histogram
 > hb :: HBuilder Double (Data.Histogram.Generic.Histogram V.Vector BinD Double)
 > hb = forceDouble -<< mkSimple (binD lower numBins upper)
 >   where
->     lower = startMu - 1.5*sigma_0
->     upper = startMu + 1.5*sigma_0
+>     lower = startMu - 1.5*sigma0
+>     upper = startMu + 1.5*sigma0
 >
 > hist :: Int -> Histogram V.Vector BinD Double
 > hist seed = fillBuilder hb (map fst $ test seed)
@@ -208,25 +246,4 @@ dia = image "diagrams/SmoothHistMCMC.png" 1.0 1.0
 ````
 
 Quite nice and had my machine running at 750% with +RTS -N8.
-
-PostAmble
-=========
-
-Normally with BlogLiteratelyD, we can generate diagrams on the
-fly. However, here we want to run the simulations in parallel so we
-need to actually compile something.
-
-~~~~ { .shell }
-ghc -O2 ConjMCMCSimple.lhs -main-is ConjMCMCSimple -threaded -fforce-recomp
-~~~~
-
-> displayHeader :: FilePath -> Diagram B R2 -> IO ()
-> displayHeader fn =
->   mainRender ( DiagramOpts (Just 900) (Just 700) fn
->              , DiagramLoopOpts False Nothing 0
->              )
-
-> main :: IO ()
-> main = undefined
-
 
